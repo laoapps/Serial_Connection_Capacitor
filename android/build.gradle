@@ -4,14 +4,13 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-               classpath 'com.android.tools.build:gradle:8.1.1' // Use a newer plugin version
+        classpath 'com.android.tools.build:gradle:8.1.1' // Latest Gradle plugin
     }
 }
 
 repositories {
     google()
     mavenCentral()
-    maven { url "https://jitpack.io" }
 }
 
 apply plugin: 'com.android.library'
@@ -19,7 +18,7 @@ apply plugin: 'com.android.library'
 android {
     namespace "com.laoapps.plugins.serialconnectioncapacitor"
     compileSdk 35
-    
+
     defaultConfig {
         minSdkVersion 21
         targetSdkVersion 35
@@ -30,13 +29,13 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false // Disable code shrinking for debugging purposes
+            minifyEnabled false // Disable code shrinking for debugging
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 
     lint {
-        abortOnError false // Use `lint` for newer Gradle versions
+        abortOnError false
     }
 
     compileOptions {
@@ -47,15 +46,13 @@ android {
 
 dependencies {
     implementation 'com.getcapacitor:capacitor-android:5.6.1'
-    implementation 'com.github.mik3y:usb-serial-for-android:3.5.1'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
 repositories {
     google()
     mavenCentral()
-    // maven { url 'https://jitpack.io' }
-    // maven { url 'https://repo.ionicframework.com/capacitor' }
-    maven { url "https://repo.ionicframework.com/capacitor" } // Official Capacitor Maven repo
-
-    // maven { url "https://maven.google.com" }
+    maven { url "https://repo.ionicframework.com/capacitor" }
 }

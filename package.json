@@ -1,6 +1,6 @@
 {
   "name": "serialconnectioncapacitor",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "for serial connection",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -46,8 +46,8 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "@capacitor/android": "^7.0.0",
-    "@capacitor/core": "^7.0.0",
+    "@capacitor/android": "^5.7.8",
+    "@capacitor/core": "^7.0.1",
     "@capacitor/docgen": "^0.3.0",
     "@capacitor/ios": "^7.0.0",
     "@ionic/eslint-config": "^0.4.0",
@@ -76,5 +76,8 @@
     "android": {
       "src": "android"
     }
+  },
+  "dependencies": {
+    "@capacitor/cli": "^7.0.1"
   }
 }
