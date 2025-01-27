@@ -1,7 +1,7 @@
 {
   "name": "serialconnectioncapacitor",
   "version": "0.0.6",
-  "description": "Serial Connection Plugin for Capacitor",
+  "description": "for serial connection",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
@@ -10,17 +10,19 @@
     "android/src/main/",
     "android/build.gradle",
     "dist/",
-    "ios/Plugin/",
-    "SerialConnectionCapacitor.podspec"
+    "ios/Sources",
+    "ios/Tests",
+    "Package.swift",
+    "Serialconnectioncapacitor.podspec"
   ],
-  "author": "",
+  "author": "touyara",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git+https://github.com/laoapps/Serial_Connection_Capacitor.git"
   },
   "bugs": {
-    "url": ""
+    "url": "https://github.com/laoapps/Serial_Connection_Capacitor/issues"
   },
   "keywords": [
     "capacitor",
@@ -29,15 +31,15 @@
   ],
   "scripts": {
     "verify": "npm run verify:ios && npm run verify:android && npm run verify:web",
-    "verify:ios": "cd ios && pod install && xcodebuild -workspace Plugin.xcworkspace -scheme Plugin -destination generic/platform=iOS && cd ..",
+    "verify:ios": "xcodebuild -scheme Serialconnectioncapacitor -destination generic/platform=iOS",
     "verify:android": "cd android && ./gradlew clean build test && cd ..",
     "verify:web": "npm run build",
     "lint": "npm run eslint && npm run prettier -- --check && npm run swiftlint -- lint",
     "fmt": "npm run eslint -- --fix && npm run prettier -- --write && npm run swiftlint -- --fix --format",
     "eslint": "eslint . --ext ts",
-    "prettier": "prettier \"**/*.{css,html,ts,js,java}\"",
+    "prettier": "prettier \"**/*.{css,html,ts,js,java}\" --plugin=prettier-plugin-java",
     "swiftlint": "node-swiftlint",
-    "docgen": "docgen --api SerialConnectionCapacitor --output-readme README.md --output-json dist/docs.json",
+    "docgen": "docgen --api SerialPortPlugin --output-readme README.md --output-json dist/docs.json",
     "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.mjs",
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
@@ -73,5 +75,8 @@
     "android": {
       "src": "android"
     }
+  },
+  "dependencies": {
+    "@capacitor/cli": "^7.0.1"
   }
 }
