@@ -1,7 +1,10 @@
 package com.laoapps.plugins.serialconnectioncapacitor;
 
+import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.util.Log;
 
@@ -11,78 +14,64 @@ import java.io.OutputStream;
 
 public class SerialConnectionCapacitor {
 
+    private static final String TAG = "SerialConnection";
     private UsbDeviceConnection connection;
     private InputStream inputStream;
     private OutputStream outputStream;
+    private Context context;
+
+    public SerialConnectionCapacitor(Context context) {
+        this.context = context;
+    }
 
     public boolean openConnection(String portPath, int baudRate) {
         try {
-            UsbManager usbManager = (UsbManager) MyApp.getContext().getSystemService(UsbManager.class);
+            UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+            if (usbManager == null) {
+                Log.e(TAG, "UsbManager is null");
+                return false;
+            }
+
             for (UsbDevice device : usbManager.getDeviceList().values()) {
                 if (device.getDeviceName().equals(portPath)) {
                     connection = usbManager.openDevice(device);
                     if (connection != null) {
-                        // Initialize input and output streams
-                        inputStream = connection.getFileDescriptor() != -1 ? connection.getInputStream() : null;
-                        outputStream = connection.getFileDescriptor() != -1 ? connection.getOutputStream() : null;
-                        Log.d("SerialPlugin", "Connection opened on: " + portPath);
+                        UsbInterface usbInterface = device.getInterface(0);
+                        UsbEndpoint endpointIn = usbInterface.getEndpoint(0);
+                        UsbEndpoint endpointOut = usbInterface.getEndpoint(1);
+
+                        connection.claimInterface(usbInterface, true);
+
+                        inputStream = new SerialInputStream(connection, endpointIn);
+                        outputStream = new SerialOutputStream(connection, endpointOut);
+
+                        Log.d(TAG, "Connection opened on port: " + portPath);
                         return true;
                     }
                 }
             }
+            Log.e(TAG, "Device not found");
+            return false;
         } catch (Exception e) {
-            Log.e("SerialPlugin", "Error opening connection: " + e.getMessage());
+            Log.e(TAG, "Error opening serial port", e);
+            return false;
         }
-        return false;
     }
 
-    public boolean writeToPort(String data) {
-        try {
-            if (outputStream != null) {
-                outputStream.write(data.getBytes());
-                outputStream.flush();
-                return true;
-            }
-        } catch (IOException e) {
-            Log.e("SerialPlugin", "Error writing to port: " + e.getMessage());
+    public void closeConnection() {
+        if (connection != null) {
+            connection.close();
+            connection = null;
+            inputStream = null;
+            outputStream = null;
         }
-        return false;
     }
 
-    public String readFromPort() {
-        try {
-            if (inputStream != null) {
-                byte[] buffer = new byte[1024];
-                int bytesRead = inputStream.read(buffer);
-                if (bytesRead > 0) {
-                    return new String(buffer, 0, bytesRead);
-                }
-            }
-        } catch (IOException e) {
-            Log.e("SerialPlugin", "Error reading from port: " + e.getMessage());
-        }
-        return null;
+    public InputStream getInputStream() {
+        return inputStream;
     }
 
-    public boolean closeConnection() {
-        try {
-            if (inputStream != null) {
-                inputStream.close();
-                inputStream = null;
-            }
-            if (outputStream != null) {
-                outputStream.close();
-                outputStream = null;
-            }
-            if (connection != null) {
-                connection.close();
-                connection = null;
-            }
-            Log.d("SerialPlugin", "Connection closed");
-            return true;
-        } catch (IOException e) {
-            Log.e("SerialPlugin", "Error closing connection: " + e.getMessage());
-        }
-        return false;
+    public OutputStream getOutputStream() {
+        return outputStream;
     }
 }
