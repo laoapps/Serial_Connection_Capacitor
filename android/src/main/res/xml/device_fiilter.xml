@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Add your USB device vendor ID and product ID here -->
+    <usb-device vendor-id="1027" product-id="24577" />
+    <!-- Add more device filters as needed -->
+</resources>
