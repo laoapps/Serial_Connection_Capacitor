@@ -134,3 +134,31 @@ Result of reading from a serial port.
 | **`data`** | <code>string</code> | Data read from the serial port (hex string or text). |
 
 </docgen-api>
+
+## Sample Usage
+
+```typescript
+import { Plugins } from '@capacitor/core';
+const { SerialPortPlugin } = Plugins;
+
+async function useSerialPort() {
+  // List available ports
+  const ports = await SerialPortPlugin.listPorts();
+  console.log('Available ports:', ports);
+
+  // Open a port
+  await SerialPortPlugin.open({ portPath: '/dev/ttyUSB0', baudRate: 9600 });
+
+  // Write to the port
+  await SerialPortPlugin.write({ command: 'Hello, Serial Port!' });
+
+  // Read from the port
+  const data = await SerialPortPlugin.read();
+  console.log('Data read from port:', data);
+
+  // Close the port
+  await SerialPortPlugin.close();
+}
+
+useSerialPort();
+```
