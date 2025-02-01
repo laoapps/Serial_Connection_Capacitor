@@ -2,24 +2,43 @@ package com.laoapps.plugins.serialconnectioncapacitor;
 
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
-import android.hardware.usb.UsbDeviceConnection;
-import android.hardware.usb.UsbEndpoint;
-import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
-import com.getcapacitor.JSObject;
+import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 @CapacitorPlugin(name = "SerialConnectionCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
-    private UsbDeviceConnection connection;
-    private InputStream inputStream;
-    private OutputStream outputStream;
+    private UsbManager usbManager;
+    private SerialConnectionCapacitor serialConnection;
 
+    @Override
+    public void load() {
+        serialConnection = new SerialConnectionCapacitor(getContext());
+    }
+
+    @PluginMethod
+    public void listPorts(PluginCall call) {
+        JSObject ret = new JSObject();
+        JSObject ports = new JSObject();
+
+        HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+        for (Map.Entry<String, UsbDevice> entry : deviceList.entrySet()) {
+            UsbDevice device = entry.getValue();
+            ports.put(device.getDeviceName(), device.getDeviceId());
+        }
+
+        ret.put("ports", ports);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void open(PluginCall call) {
         String portPath = call.getString("portPath");
         int baudRate = call.getInt("baudRate", 9600);
@@ -29,56 +48,41 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
-        try {
-            UsbManager manager = (UsbManager) getContext().getSystemService(Context.USB_SERVICE);
-            for (UsbDevice device : manager.getDeviceList().values()) {
-                if (device.getDeviceName().equals(portPath)) {
-                    connection = manager.openDevice(device);
-                    if (connection != null) {
-                        UsbInterface usbInterface = device.getInterface(0);
-                        UsbEndpoint endpointIn = usbInterface.getEndpoint(0);
-                        UsbEndpoint endpointOut = usbInterface.getEndpoint(1);
-
-                        connection.claimInterface(usbInterface, true);
-
-                        inputStream = new SerialInputStream(connection, endpointIn);
-                        outputStream = new SerialOutputStream(connection, endpointOut);
-                        call.resolve();
-                        return;
-                    }
-                }
-            }
-            call.reject("Device not found");
-        } catch (Exception e) {
-            call.reject("Error opening serial port: " + e.getMessage());
+        boolean success = serialConnection.openConnection(portPath, baudRate);
+        if (success) {
+            call.resolve();
+        } else {
+            call.reject("Failed to open connection");
         }
     }
 
+    @PluginMethod
     public void write(PluginCall call) {
         String data = call.getString("data");
-        if (data == null || outputStream == null) {
+        if (data == null || serialConnection.getOutputStream() == null) {
             call.reject("Invalid parameters or port not open");
             return;
         }
 
         try {
-            outputStream.write(data.getBytes());
-            outputStream.flush();
+            serialConnection.getOutputStream().write(data.getBytes());
+            serialConnection.getOutputStream().flush();
             call.resolve();
         } catch (IOException e) {
             call.reject("Write error: " + e.getMessage());
         }
     }
 
+    @PluginMethod
     public void read(PluginCall call) {
-        if (inputStream == null) {
+        if (serialConnection.getInputStream() == null) {
             call.reject("Port not open");
             return;
         }
 
         try {
             byte[] buffer = new byte[1024];
-            int bytesRead = inputStream.read(buffer);
+            int bytesRead = serialConnection.getInputStream().read(buffer);
             
             JSObject ret = new JSObject();
             ret.put("data", new String(buffer, 0, bytesRead));
@@ -88,13 +92,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
     public void close(PluginCall call) {
-        if (connection != null) {
-            connection.close();
-            connection = null;
-            inputStream = null;
-            outputStream = null;
-        }
+        serialConnection.closeConnection();
         call.resolve();
     }
 }

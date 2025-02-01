@@ -34,9 +34,25 @@ export interface SerialPortReadResult {
 }
 
 /**
+ * Result of listing available serial ports.
+ */
+export interface SerialPortListResult {
+  /**
+   * Available serial ports.
+   */
+  ports: { [key: string]: number };
+}
+
+/**
  * Plugin interface for serial port communication.
  */
 export interface SerialPortPlugin {
+  /**
+   * Lists available serial ports.
+   * @returns Promise that resolves with the list of available ports.
+   */
+  listPorts(): Promise<SerialPortListResult>;
+
   /**
    * Opens a serial port connection.
    * @param options Connection options including port path and baud rate.

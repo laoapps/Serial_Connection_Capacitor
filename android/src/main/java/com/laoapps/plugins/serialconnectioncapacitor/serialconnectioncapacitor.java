@@ -11,14 +11,16 @@ import android.util.Log;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 public class SerialConnectionCapacitor {
-
     private static final String TAG = "SerialConnection";
+    private Context context;
+    private UsbManager usbManager;
     private UsbDeviceConnection connection;
     private InputStream inputStream;
     private OutputStream outputStream;
-    private Context context;
 
     public SerialConnectionCapacitor(Context context) {
         this.context = context;
@@ -73,5 +75,18 @@ public class SerialConnectionCapacitor {
 
     public OutputStream getOutputStream() {
         return outputStream;
+    }
+
+    public Map<String, Integer> listPorts() {
+        UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+        Map<String, Integer> ports = new HashMap<>();
+
+        if (usbManager != null) {
+            for (UsbDevice device : usbManager.getDeviceList().values()) {
+                ports.put(device.getDeviceName(), device.getDeviceId());
+            }
+        }
+
+        return ports;
     }
 }

@@ -1,8 +1,9 @@
-import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortReadResult } from './definitions';
+import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortReadResult, SerialPortListResult } from './definitions';
 
 /**
  * @name SerialPortPlugin
  * @description Serial port communication plugin for Capacitor applications.
+ * @method listPorts
  * @method open
  * @method write
  * @method read
@@ -12,6 +13,9 @@ import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, Seria
  * import { SerialConnectionCapacitor } from 'serialconnectioncapacitor';
  * 
  * const serial = new SerialConnectionCapacitor();
+ * const ports = await serial.listPorts();
+ * console.log('Available ports:', ports);
+ * 
  * await serial.open({
  *   portPath: '/dev/tty.usbserial',
  *   baudRate: 9600
@@ -20,12 +24,19 @@ import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, Seria
  */
 export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
   /**
+   * Lists available serial ports.
+   * @returns Promise that resolves with the list of available ports.
+   */
+  async listPorts(): Promise<SerialPortListResult> {
+    throw new Error('Method not implemented for web platform.');
+  }
+
+  /**
    * Opens a connection to the serial port.
    * @param _options Connection options including port path and baud rate.
    * @returns Promise that resolves when the connection is established.
    */
   async open(_options: SerialPortOptions): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     throw new Error('Method not implemented for web platform.');
   }
 
@@ -35,7 +46,6 @@ export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
    * @returns Promise that resolves when the write is complete.
    */
   async write(_options: SerialPortWriteOptions): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     throw new Error('Method not implemented for web platform.');
   }
 

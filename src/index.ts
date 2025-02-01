@@ -12,6 +12,9 @@ import type { SerialPortPlugin } from './definitions';
  * import { serialconnectioncapacitor } from 'serialconnectioncapacitor';
  * 
  * const connectToDevice = async () => {
+ *   const ports = await serialconnectioncapacitor.listPorts();
+ *   console.log('Available ports:', ports);
+ * 
  *   await serialconnectioncapacitor.open({
  *     portPath: '/dev/tty.usbserial',
  *     baudRate: 9600

@@ -13,6 +13,7 @@ npx cap sync
 
 <docgen-index>
 
+* [`listPorts()`](#listports)
 * [`open(...)`](#open)
 * [`write(...)`](#write)
 * [`read()`](#read)
@@ -25,6 +26,19 @@ npx cap sync
 <!--Update the source file JSDoc comments and rerun docgen to update the docs below-->
 
 Plugin interface for serial port communication.
+
+### listPorts()
+
+```typescript
+listPorts() => Promise<SerialPortListResult>
+```
+
+Lists available serial ports.
+
+**Returns:** <code>Promise&lt;<a href="#serialportlistresult">SerialPortListResult</a>&gt;</code>
+
+--------------------
+
 
 ### open(...)
 
@@ -81,6 +95,15 @@ Closes the serial port connection.
 
 
 ### Interfaces
+
+
+#### SerialPortListResult
+
+Result of listing available serial ports.
+
+| Prop        | Type                                    | Description             |
+| ----------- | --------------------------------------- | ----------------------- |
+| **`ports`** | <code>{ [key: string]: number; }</code> | Available serial ports. |
 
 
 #### SerialPortOptions
