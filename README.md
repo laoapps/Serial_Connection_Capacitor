@@ -139,32 +139,56 @@ Options for writing to a serial port.
 ## Sample Usage
 
 ```typescript
-import { Plugins } from '@capacitor/core';
-const { SerialConnectionCapacitor } = Plugins;
+import { SerialConnectionCapacitor } from 'serialconnectioncapacitor';
 
 async function useSerialPort() {
-  // List available ports
-  const ports = await SerialConnectionCapacitor.listPorts();
-  console.log('Available ports:', ports);
+  try {
+    // List available ports
+    const ports = await SerialConnectionCapacitor.listPorts();
+    console.log('Available ports:', ports);
 
-  // Open a port
-  await SerialConnectionCapacitor.open({ portPath: '/dev/ttyUSB0', baudRate: 9600 });
+    // Ensure at least one port is available
+    if (!ports.ports || Object.keys(ports.ports).length === 0) {
+      console.error('No serial ports available');
+      return;
+    }
 
-  // Write to the port
-  await SerialConnectionCapacitor.write({ data: 'Hello, Serial Port!' });
+    // Get the first available port
+    const firstPort = Object.keys(ports.ports)[0];
 
-  // Start reading from the port
-  SerialConnectionCapacitor.addListener('dataReceived', (info: any) => {
-    console.log('Data received:', info.data);
-  });
-  await SerialConnectionCapacitor.startReading();
+    // Open the port
+    await SerialConnectionCapacitor.open({ portPath: firstPort, baudRate: 9600 });
+    console.log(`Opened port: ${firstPort}`);
 
-  // Stop reading from the port
-  await SerialConnectionCapacitor.stopReading();
+    // Listen for incoming data
+    SerialConnectionCapacitor.addListener('dataReceived', (info: { data: string }) => {
+      console.log('Data received:', info.data);
+    });
 
-  // Close the port
-  await SerialConnectionCapacitor.close();
+    // Listen for errors
+    SerialConnectionCapacitor.addListener('readError', (error: { error: string }) => {
+      console.error('Serial Port Read Error:', error.error);
+    });
+
+    // Start reading from the serial port
+    await SerialConnectionCapacitor.startReading();
+    console.log('Started reading from serial port');
+
+    // Example delay before stopping (for testing purposes)
+    setTimeout(async () => {
+      await SerialConnectionCapacitor.stopReading();
+      console.log('Stopped reading from serial port');
+
+      // Close the serial port
+      await SerialConnectionCapacitor.close();
+      console.log('Closed serial port');
+    }, 10000); // Read for 10 seconds before stopping
+
+  } catch (error) {
+    console.error('Serial Port Error:', error);
+  }
 }
 
+// Run the function
 useSerialPort();
 ```

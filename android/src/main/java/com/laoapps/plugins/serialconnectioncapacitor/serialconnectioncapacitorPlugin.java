@@ -17,9 +17,11 @@ import java.util.Map;
 public class SerialConnectionCapacitorPlugin extends Plugin {
     private UsbManager usbManager;
     private SerialConnectionCapacitor serialConnection;
+    private boolean isReading = false; // ✅ FIX: Declare class-level variable
 
     @Override
     public void load() {
+        usbManager = (UsbManager) getContext().getSystemService(Context.USB_SERVICE); // ✅ FIX: Initialize usbManager
         serialConnection = new SerialConnectionCapacitor(getContext());
     }
 
@@ -27,6 +29,11 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     public void listPorts(PluginCall call) {
         JSObject ret = new JSObject();
         JSObject ports = new JSObject();
+
+        if (usbManager == null) { // ✅ FIX: Handle uninitialized usbManager
+            call.reject("USB Manager not initialized");
+            return;
+        }
 
         HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
         for (Map.Entry<String, UsbDevice> entry : deviceList.entrySet()) {
@@ -40,6 +47,11 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     @PluginMethod
     public void open(PluginCall call) {
+        if (serialConnection == null) { // ✅ FIX: Check initialization
+            call.reject("SerialConnection not initialized");
+            return;
+        }
+
         String portPath = call.getString("portPath");
         int baudRate = call.getInt("baudRate", 9600);
 
@@ -58,9 +70,14 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     @PluginMethod
     public void write(PluginCall call) {
+        if (serialConnection == null || serialConnection.getOutputStream() == null) { // ✅ FIX: Check initialization
+            call.reject("Port not open or SerialConnection is null");
+            return;
+        }
+
         String data = call.getString("data");
-        if (data == null || serialConnection.getOutputStream() == null) {
-            call.reject("Invalid parameters or port not open");
+        if (data == null) {
+            call.reject("Invalid data");
             return;
         }
 
@@ -75,12 +92,14 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     @PluginMethod
     public void startReading(PluginCall call) {
-        if (serialConnection.getInputStream() == null) {
+        if (serialConnection == null || serialConnection.getInputStream() == null) { // ✅ FIX: Check initialization
             call.reject("Port not open");
             return;
         }
 
         isReading = true;
+        call.resolve(); // ✅ FIX: Resolve before starting thread
+
         new Thread(() -> {
             try {
                 byte[] buffer = new byte[1024];
@@ -89,25 +108,38 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                     if (bytesRead > 0) {
                         JSObject ret = new JSObject();
                         ret.put("data", new String(buffer, 0, bytesRead));
-                        notifyListeners("dataReceived", ret);
+                        notifyListeners("dataReceived", ret); // ✅ Send event to TypeScript
                     }
                 }
             } catch (IOException e) {
-                call.reject("Read error: " + e.getMessage());
+                JSObject error = new JSObject();
+                error.put("error", "Read error: " + e.getMessage());
+                notifyListeners("readError", error); // ✅ Notify TypeScript about error
             }
         }).start();
-        call.resolve();
     }
 
     @PluginMethod
     public void stopReading(PluginCall call) {
         isReading = false;
+
+        try {
+            if (serialConnection != null && serialConnection.getInputStream() != null) {
+                serialConnection.getInputStream().close(); // ✅ FIX: Forcefully close stream
+            }
+        } catch (IOException e) {
+            call.reject("Error closing input stream: " + e.getMessage());
+            return;
+        }
+
         call.resolve();
     }
 
     @PluginMethod
     public void close(PluginCall call) {
-        serialConnection.closeConnection();
+        if (serialConnection != null) {
+            serialConnection.closeConnection();
+        }
         call.resolve();
     }
 }
