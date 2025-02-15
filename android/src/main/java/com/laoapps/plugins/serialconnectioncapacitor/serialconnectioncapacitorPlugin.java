@@ -74,22 +74,35 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void read(PluginCall call) {
+    public void startReading(PluginCall call) {
         if (serialConnection.getInputStream() == null) {
             call.reject("Port not open");
             return;
         }
 
-        try {
-            byte[] buffer = new byte[1024];
-            int bytesRead = serialConnection.getInputStream().read(buffer);
-            
-            JSObject ret = new JSObject();
-            ret.put("data", new String(buffer, 0, bytesRead));
-            call.resolve(ret);
-        } catch (IOException e) {
-            call.reject("Read error: " + e.getMessage());
-        }
+        isReading = true;
+        new Thread(() -> {
+            try {
+                byte[] buffer = new byte[1024];
+                while (isReading) {
+                    int bytesRead = serialConnection.getInputStream().read(buffer);
+                    if (bytesRead > 0) {
+                        JSObject ret = new JSObject();
+                        ret.put("data", new String(buffer, 0, bytesRead));
+                        notifyListeners("dataReceived", ret);
+                    }
+                }
+            } catch (IOException e) {
+                call.reject("Read error: " + e.getMessage());
+            }
+        }).start();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void stopReading(PluginCall call) {
+        isReading = false;
+        call.resolve();
     }
 
     @PluginMethod

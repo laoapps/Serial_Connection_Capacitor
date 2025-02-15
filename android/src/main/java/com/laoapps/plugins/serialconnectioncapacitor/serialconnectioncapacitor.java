@@ -24,11 +24,11 @@ public class SerialConnectionCapacitor {
 
     public SerialConnectionCapacitor(Context context) {
         this.context = context;
+        this.usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
     }
 
     public boolean openConnection(String portPath, int baudRate) {
         try {
-            UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
             if (usbManager == null) {
                 Log.e(TAG, "UsbManager is null");
                 return false;
@@ -78,7 +78,6 @@ public class SerialConnectionCapacitor {
     }
 
     public Map<String, Integer> listPorts() {
-        UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         Map<String, Integer> ports = new HashMap<>();
 
         if (usbManager != null) {

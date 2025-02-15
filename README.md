@@ -16,7 +16,8 @@ npx cap sync
 * [`listPorts()`](#listports)
 * [`open(...)`](#open)
 * [`write(...)`](#write)
-* [`read()`](#read)
+* [`startReading()`](#startreading)
+* [`stopReading()`](#stopreading)
 * [`close()`](#close)
 * [Interfaces](#interfaces)
 
@@ -70,15 +71,24 @@ Writes data to the serial port.
 --------------------
 
 
-### read()
+### startReading()
 
 ```typescript
-read() => Promise<SerialPortReadResult>
+startReading() => Promise<void>
 ```
 
-Reads data from the serial port.
+Start reading data from the serial port.
 
-**Returns:** <code>Promise&lt;<a href="#serialportreadresult">SerialPortReadResult</a>&gt;</code>
+--------------------
+
+
+### stopReading()
+
+```typescript
+stopReading() => Promise<void>
+```
+
+Stop reading data from the serial port.
 
 --------------------
 
@@ -124,40 +134,36 @@ Options for writing to a serial port.
 | ------------- | ------------------- | -------------------------------------------------------- |
 | **`command`** | <code>string</code> | Command to send to the serial port (hex string or text). |
 
-
-#### SerialPortReadResult
-
-Result of reading from a serial port.
-
-| Prop       | Type                | Description                                          |
-| ---------- | ------------------- | ---------------------------------------------------- |
-| **`data`** | <code>string</code> | Data read from the serial port (hex string or text). |
-
 </docgen-api>
 
 ## Sample Usage
 
 ```typescript
 import { Plugins } from '@capacitor/core';
-const { SerialPortPlugin } = Plugins;
+const { SerialConnectionCapacitor } = Plugins;
 
 async function useSerialPort() {
   // List available ports
-  const ports = await SerialPortPlugin.listPorts();
+  const ports = await SerialConnectionCapacitor.listPorts();
   console.log('Available ports:', ports);
 
   // Open a port
-  await SerialPortPlugin.open({ portPath: '/dev/ttyUSB0', baudRate: 9600 });
+  await SerialConnectionCapacitor.open({ portPath: '/dev/ttyUSB0', baudRate: 9600 });
 
   // Write to the port
-  await SerialPortPlugin.write({ command: 'Hello, Serial Port!' });
+  await SerialConnectionCapacitor.write({ data: 'Hello, Serial Port!' });
 
-  // Read from the port
-  const data = await SerialPortPlugin.read();
-  console.log('Data read from port:', data);
+  // Start reading from the port
+  SerialConnectionCapacitor.addListener('dataReceived', (info: any) => {
+    console.log('Data received:', info.data);
+  });
+  await SerialConnectionCapacitor.startReading();
+
+  // Stop reading from the port
+  await SerialConnectionCapacitor.stopReading();
 
   // Close the port
-  await SerialPortPlugin.close();
+  await SerialConnectionCapacitor.close();
 }
 
 useSerialPort();

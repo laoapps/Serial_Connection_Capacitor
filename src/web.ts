@@ -1,4 +1,4 @@
-import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortReadResult, SerialPortListResult } from './definitions';
+import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortListResult } from './definitions';
 
 /**
  * @name SerialPortPlugin
@@ -50,10 +50,17 @@ export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
   }
 
   /**
-   * Reads data from the serial port.
+   * Start reading data from the serial port.
    * @returns Promise that resolves with the data read from the serial port.
    */
-  async read(): Promise<SerialPortReadResult> {
+  async startReading(): Promise<void> {
+    throw new Error('Method not implemented for web platform.');
+  }
+ /**
+   * Stop reading data from the serial port.
+   * @returns Promise that resolves with the data read from the serial port.
+   */
+  async stopReading(): Promise<void> {
     throw new Error('Method not implemented for web platform.');
   }
 

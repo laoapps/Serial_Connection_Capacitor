@@ -66,10 +66,15 @@ export interface SerialPortPlugin {
   write(options: SerialPortWriteOptions): Promise<void>;
 
   /**
-   * Reads data from the serial port.
+   * Start reading data from the serial port.
    * @returns Promise that resolves with the read data.
    */
-  read(): Promise<SerialPortReadResult>;
+  startReading(): Promise<void>;
+  /**
+   * Stop reading data from the serial port.
+   * @returns Promise that resolves with the read data.
+   */
+  stopReading(): Promise<void>;
 
   /**
    * Closes the serial port connection.
