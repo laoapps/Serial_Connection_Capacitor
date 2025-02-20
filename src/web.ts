@@ -1,4 +1,4 @@
-import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortListResult } from './definitions';
+import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortListResult,SerialPortEventData,SerialPortEventTypes } from './definitions';
 
 /**
  * @name SerialPortPlugin
@@ -10,9 +10,9 @@ import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, Seria
  * @method close
  * @usage
  * ```typescript
- * import { SerialConnectionCapacitor } from 'serialconnectioncapacitor';
+ * import { serialconnectioncapacitor } from 'serialconnectioncapacitor';
  * 
- * const serial = new SerialConnectionCapacitor();
+ * const serial = new serialconnectioncapacitor();
  * const ports = await serial.listPorts();
  * console.log('Available ports:', ports);
  * 
@@ -23,6 +23,7 @@ import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, Seria
  * ```
  */
 export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
+  private listeners: { [eventName: string]: (data: any) => void } = {};
   /**
    * Lists available serial ports.
    * @returns Promise that resolves with the list of available ports.
@@ -71,4 +72,31 @@ export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
   async close(): Promise<void> {
     throw new Error('Method not implemented for web platform.');
   }
+    /**
+   * Add listener to capture data from reading.
+   * @returns void.
+   */
+   addListener(
+      eventName: SerialPortEventTypes,
+      listenerFunc: (event: SerialPortEventData) => void
+    ): void{
+      this.listeners[eventName] = listenerFunc;
+    };
+
+  // Method to trigger the event listeners (for demonstration purposes)
+  triggerEvent(eventName: string, data: any): void {
+    if (this.listeners[eventName]) {
+      this.listeners[eventName](data);
+    }
+  }
+  /**
+   * Remove listener for serial port events
+   * @param eventName The event to stop listening for
+   */
+  removeListener(
+    eventName: SerialPortEventTypes,
+  ): void{
+    delete this.listeners[eventName];
+    return;
+  };
 }

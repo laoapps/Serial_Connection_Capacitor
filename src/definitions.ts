@@ -44,6 +44,29 @@ export interface SerialPortListResult {
 }
 
 /**
+ * Event data types for serial port events
+ */
+export interface SerialPortEventData {
+  message?: string;
+  data?: string;
+  error?: string;
+}
+
+export type SerialPortEventTypes = 
+  | 'portsListed'
+  | 'connectionOpened'
+  | 'connectionClosed'
+  | 'writeSuccess'
+  | 'dataReceived'
+  | 'readingStarted'
+  | 'readingStopped'
+  | 'listError'
+  | 'connectionError'
+  | 'writeError'
+  | 'readError'
+  | 'deviceError';
+
+/**
  * Plugin interface for serial port communication.
  */
 export interface SerialPortPlugin {
@@ -80,4 +103,27 @@ export interface SerialPortPlugin {
    * Closes the serial port connection.
    */
   close(): Promise<void>;
+
+    /**
+   * Demonstrate trigger Events.
+   */
+  triggerEvent(eventName: string, data: any): void;
+
+  /**
+   * Add listener for serial port events
+   * @param eventName The event to listen for
+   * @param listenerFunc Callback function when event occurs
+   */
+  addListener(
+    eventName: SerialPortEventTypes,
+    listenerFunc: (event: SerialPortEventData) => void
+  ): void;
+
+  /**
+   * Remove listener for serial port events
+   * @param eventName The event to stop listening for
+   */
+  removeListener(
+    eventName: SerialPortEventTypes
+  ): void;
 }
