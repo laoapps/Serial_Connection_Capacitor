@@ -63,8 +63,14 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         boolean success = serialConnection.openConnection(portPath, baudRate);
         if (success) {
             call.resolve();
+            JSObject ret = new JSObject();
+            ret.put("message", "Connection opened");
+            notifyListeners("connectionOpened", ret); // ✅ Notify TypeScript about connection opened
         } else {
             call.reject("Failed to open connection");
+            JSObject error = new JSObject();
+            error.put("error", "Failed to open connection");
+            notifyListeners("connectionError", error); // ✅ Notify TypeScript about connection error
         }
     }
 
@@ -85,8 +91,14 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             serialConnection.getOutputStream().write(data.getBytes());
             serialConnection.getOutputStream().flush();
             call.resolve();
+            JSObject ret = new JSObject();
+            ret.put("message", "Write successful");
+            notifyListeners("writeSuccess", ret); // ✅ Notify TypeScript about write success
         } catch (IOException e) {
             call.reject("Write error: " + e.getMessage());
+            JSObject error = new JSObject();
+            error.put("error", "Write error: " + e.getMessage());
+            notifyListeners("writeError", error); // ✅ Notify TypeScript about write error
         }
     }
 
@@ -133,6 +145,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         }
 
         call.resolve();
+        JSObject ret = new JSObject();
+        ret.put("message", "Reading stopped");
+        notifyListeners("readingStopped", ret); // ✅ Notify TypeScript about reading stopped
     }
 
     @PluginMethod
@@ -141,5 +156,8 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             serialConnection.closeConnection();
         }
         call.resolve();
+        JSObject ret = new JSObject();
+        ret.put("message", "Connection closed");
+        notifyListeners("connectionClosed", ret); // ✅ Notify TypeScript about connection closed
     }
 }
