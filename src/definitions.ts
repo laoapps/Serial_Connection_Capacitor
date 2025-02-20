@@ -1,3 +1,5 @@
+import type { PluginListenerHandle } from '@capacitor/core';
+
 /**
  * Options for opening a serial port connection.
  */
@@ -109,11 +111,12 @@ export interface SerialPortPlugin {
    * Add listener for serial port events
    * @param eventName The event to listen for
    * @param listenerFunc Callback function when event occurs
+   * @returns Promise with the listener handle
    */
   addEvent(
     eventName: SerialPortEventTypes,
     listenerFunc: (event: SerialPortEventData) => void
-  ): Promise<any>;
+  ): Promise<PluginListenerHandle>;
 
   /**
    * Remove listener for serial port events

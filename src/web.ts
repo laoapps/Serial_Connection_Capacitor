@@ -1,4 +1,5 @@
 import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortListResult, SerialPortEventData, SerialPortEventTypes } from './definitions';
+import { PluginListenerHandle } from '@capacitor/core';
 
 /**
  * @name SerialPortPlugin
@@ -23,79 +24,164 @@ import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, Seria
  * ```
  */
 export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
-  private listeners: { [eventName: string]: (data: any) => void } = {};
+  private port: any = null;
+  private reader: any = null;
+  private listeners: { [eventName: string]: (data: SerialPortEventData) => void } = {};
 
-  /**
-   * Lists available serial ports.
-   * @returns Promise that resolves with the list of available ports.
-   */
   async listPorts(): Promise<SerialPortListResult> {
-    throw new Error('Method not implemented for web platform.');
+    try {
+      if (!('serial' in navigator)) {
+        throw new Error('Web Serial API not supported in this browser');
+      }
+
+      const ports = await (navigator as any).serial.getPorts();
+      const portList: { [key: string]: number } = {};
+      
+      // Remove unused 'port' parameter
+      ports.forEach((_: any, index: number) => {
+        portList[`web-serial-${index}`] = index;
+      });
+
+      return { ports: portList };
+    } catch (error) {
+      console.error('Error listing ports:', error);
+      throw error;
+    }
   }
 
-  /**
-   * Opens a connection to the serial port.
-   * @param _options Connection options including port path and baud rate.
-   * @returns Promise that resolves when the connection is established.
-   */
-  async open(_options: SerialPortOptions): Promise<void> {
-    throw new Error('Method not implemented for web platform.');
+  async open(options: SerialPortOptions): Promise<void> {
+    try {
+      if (!('serial' in navigator)) {
+        throw new Error('Web Serial API not supported in this browser');
+      }
+
+      this.port = await (navigator as any).serial.requestPort();
+      await this.port.open({ baudRate: options.baudRate });
+      
+      const event: SerialPortEventData = { message: 'Connection opened successfully' };
+      this.notifyListeners('connectionOpened', event);
+    } catch (error:any) {
+      const event: SerialPortEventData = { error: error.message };
+      this.notifyListeners('connectionError', event);
+      throw error;
+    }
   }
 
-  /**
-   * Writes data to the serial port.
-   * @param options Write options containing the command to send.
-   * @returns Promise that resolves when the write is complete.
-   */
-  async write(_options: SerialPortWriteOptions): Promise<void> {
-    throw new Error('Method not implemented for web platform.');
+  async write(options: SerialPortWriteOptions): Promise<void> {
+    try {
+      if (!this.port) {
+        throw new Error('Port not open');
+      }
+
+      const writer = this.port.writable.getWriter();
+      const data = new TextEncoder().encode(options.command);
+      await writer.write(data);
+      writer.releaseLock();
+
+      const event: SerialPortEventData = { message: 'Write successful' };
+      this.notifyListeners('writeSuccess', event);
+    } catch (error:any) {
+      const event: SerialPortEventData = { error: error.message };
+      this.notifyListeners('writeError', event);
+      throw error;
+    }
   }
 
-  /**
-   * Start reading data from the serial port.
-   * @returns Promise that resolves with the data read from the serial port.
-   */
   async startReading(): Promise<void> {
-    throw new Error('Method not implemented for web platform.');
+    try {
+      if (!this.port) {
+        throw new Error('Port not open');
+      }
+
+      this.reader = this.port.readable.getReader();
+      
+      // Start the reading loop
+      const readLoop = async () => {
+        try {
+          while (true) {
+            const { value, done } = await this.reader.read();
+            if (done) {
+              break;
+            }
+            const data = new TextDecoder().decode(value);
+            const event: SerialPortEventData = { data };
+            this.notifyListeners('dataReceived', event);
+          }
+        } catch (error:any) {
+          const event: SerialPortEventData = { error: error.message };
+          this.notifyListeners('readError', event);
+        }
+      };
+
+      readLoop();
+      
+      const event: SerialPortEventData = { message: 'Started reading' };
+      this.notifyListeners('readingStarted', event);
+    } catch (error:any) {
+      const event: SerialPortEventData = { error: error.message };
+      this.notifyListeners('readError', event);
+      throw error;
+    }
   }
 
-  /**
-   * Stop reading data from the serial port.
-   * @returns Promise that resolves with the data read from the serial port.
-   */
   async stopReading(): Promise<void> {
-    throw new Error('Method not implemented for web platform.');
+    try {
+      if (this.reader) {
+        await this.reader.cancel();
+        this.reader = null;
+      }
+      const event: SerialPortEventData = { message: 'Stopped reading' };
+      this.notifyListeners('readingStopped', event);
+    } catch (error:any) {
+      const event: SerialPortEventData = { error: error.message };
+      this.notifyListeners('readError', event);
+      throw error;
+    }
   }
 
-  /**
-   * Closes the serial port connection.
-   * @returns Promise that resolves when the connection is closed.
-   */
   async close(): Promise<void> {
-    throw new Error('Method not implemented for web platform.');
+    try {
+      if (this.reader) {
+        await this.reader.cancel();
+        this.reader = null;
+      }
+      if (this.port) {
+        await this.port.close();
+        this.port = null;
+      }
+      const event: SerialPortEventData = { message: 'Connection closed' };
+      this.notifyListeners('connectionClosed', event);
+    } catch (error:any) {
+      const event: SerialPortEventData = { error: error.message };
+      this.notifyListeners('connectionError', event);
+      throw error;
+    }
   }
 
-  /**
-   * Add listener for serial port events
-   * @param eventName The event to listen for
-   * @param listenerFunc Callback function when event occurs
-   */
   async addEvent(
     eventName: SerialPortEventTypes,
     listenerFunc: (event: SerialPortEventData) => void
-  ): Promise<void> {
+  ): Promise<PluginListenerHandle> {
     this.listeners[eventName] = listenerFunc;
-    return Promise.resolve();
+    return {
+      remove: async () => {
+        this.removeEvent(eventName);
+      }
+    };
   }
 
-  /**
-   * Remove listener for serial port events
-   * @param eventName The event to stop listening for
-   */
-  async removeEvent(
-    eventName: SerialPortEventTypes
-  ): Promise<void> {
+  async removeEvent(eventName: SerialPortEventTypes): Promise<void> {
     delete this.listeners[eventName];
-    return Promise.resolve();
+  }
+
+  private notifyListeners(eventName: SerialPortEventTypes, event: SerialPortEventData): void {
+    const listener = this.listeners[eventName];
+    if (listener) {
+      listener(event);
+    }
   }
 }
+
+// Register web implementation
+const SerialConnectionCapacitor = new SerialConnectionCapacitorWeb();
+export { SerialConnectionCapacitor };

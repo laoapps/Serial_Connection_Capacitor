@@ -171,7 +171,7 @@ Closes the serial port connection.
 ### addEvent(...)
 
 ```typescript
-addEvent(eventName: SerialPortEventTypes, listenerFunc: (event: SerialPortEventData) => void) => Promise<any>
+addEvent(eventName: SerialPortEventTypes, listenerFunc: (event: SerialPortEventData) => void) => Promise<PluginListenerHandle>
 ```
 
 Add listener for serial port events
@@ -181,7 +181,7 @@ Add listener for serial port events
 | **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code>                   | The event to listen for             |
 | **`listenerFunc`** | <code>(event: <a href="#serialporteventdata">SerialPortEventData</a>) =&gt; void</code> | Callback function when event occurs |
 
-**Returns:** <code>Promise&lt;any&gt;</code>
+**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
 
 --------------------
 
@@ -230,6 +230,13 @@ Options for writing to a serial port.
 | Prop          | Type                | Description                                              |
 | ------------- | ------------------- | -------------------------------------------------------- |
 | **`command`** | <code>string</code> | Command to send to the serial port (hex string or text). |
+
+
+#### PluginListenerHandle
+
+| Prop         | Type                                      |
+| ------------ | ----------------------------------------- |
+| **`remove`** | <code>() =&gt; Promise&lt;void&gt;</code> |
 
 
 #### SerialPortEventData
