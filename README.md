@@ -31,27 +31,43 @@ The plugin emits the following events:
 
 | Event Name | Description | Data Structure |
 |------------|-------------|----------------|
-| `dataReceived` | When serial data is received | `{ data: string }` |
-| `readError` | When a read error occurs | `{ error: string }` |
+| `connectionOpened` | When connection is established | `{ message: string }` |
 | `connectionError` | When connection fails | `{ error: string }` |
+| `writeSuccess` | When data is written successfully | `{ message: string }` |
+| `writeError` | When write operation fails | `{ error: string }` |
+| `dataReceived` | When data is received | `{ data: string }` |
+| `readError` | When read operation fails | `{ error: string }` |
+| `readingStopped` | When reading is stopped | `{ message: string }` |
+| `connectionClosed` | When connection is closed | `{ message: string }` |
 
 ### Event Handling Example
 
 ```typescript
 import { serialConnectionCapacitor } from 'serialconnectioncapacitor';
 
-// Listen for received data
-serialConnectionCapacitor.addListener('dataReceived', (event) => {
+// Connection events
+serialConnectionCapacitor.addEvent('connectionOpened', (event) => {
+  console.log('Connection established:', event.message);
+});
+
+// Data events
+serialConnectionCapacitor.addEvent('dataReceived', (event) => {
   console.log('Received data:', event.data);
 });
 
-// Handle errors
-serialConnectionCapacitor.addListener('readError', (event) => {
+// Error handling
+serialConnectionCapacitor.addEvent('readError', (event) => {
   console.error('Read error:', event.error);
 });
 
-// Remove listener when done
-serialConnectionCapacitor.removeListener('dataReceived');
+serialConnectionCapacitor.addEvent('connectionError', (event) => {
+  console.error('Connection error:', event.error);
+});
+
+// Cleanup
+serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
+  console.log('Connection closed:', event.message);
+});
 ```
 
 ## API
@@ -64,9 +80,8 @@ serialConnectionCapacitor.removeListener('dataReceived');
 * [`startReading()`](#startreading)
 * [`stopReading()`](#stopreading)
 * [`close()`](#close)
-* [`triggerEvent(...)`](#triggerevent)
-* [`addListener(SerialPortEventTypes, ...)`](#addlistenerserialporteventtypes-)
-* [`removeListener(...)`](#removelistener)
+* [`addEvent(...)`](#addevent)
+* [`removeEvent(...)`](#removeevent)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -153,26 +168,10 @@ Closes the serial port connection.
 --------------------
 
 
-### triggerEvent(...)
+### addEvent(...)
 
 ```typescript
-triggerEvent(eventName: string, data: any) => void
-```
-
-Demonstrate trigger Events.
-
-| Param           | Type                |
-| --------------- | ------------------- |
-| **`eventName`** | <code>string</code> |
-| **`data`**      | <code>any</code>    |
-
---------------------
-
-
-### addListener(SerialPortEventTypes, ...)
-
-```typescript
-addListener(eventName: SerialPortEventTypes, listenerFunc: (event: SerialPortEventData) => void) => void
+addEvent(eventName: SerialPortEventTypes, listenerFunc: (event: SerialPortEventData) => void) => Promise<any>
 ```
 
 Add listener for serial port events
@@ -182,13 +181,15 @@ Add listener for serial port events
 | **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code>                   | The event to listen for             |
 | **`listenerFunc`** | <code>(event: <a href="#serialporteventdata">SerialPortEventData</a>) =&gt; void</code> | Callback function when event occurs |
 
+**Returns:** <code>Promise&lt;any&gt;</code>
+
 --------------------
 
 
-### removeListener(...)
+### removeEvent(...)
 
 ```typescript
-removeListener(eventName: SerialPortEventTypes) => void
+removeEvent(eventName: SerialPortEventTypes) => Promise<void>
 ```
 
 Remove listener for serial port events
@@ -272,7 +273,7 @@ class SerialPortManager {
         baudRate: 115200
       });
 
-      this.setupListeners();
+      this.setupEvents();
       return true;
     } catch (error) {
       console.error('Initialization failed:', error);
@@ -280,16 +281,31 @@ class SerialPortManager {
     }
   }
 
-  private setupListeners() {
-    serialConnectionCapacitor.addListener('dataReceived', (event) => {
-      console.log('Received data:', event.data);
+  private setupEvents() {
+    // Connection events
+    serialConnectionCapacitor.addEvent('connectionOpened', (event) => {
+      console.log('Connected:', event.message);
     });
 
-    serialConnectionCapacitor.addListener('readError', (event) => {
+    serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
+      console.log('Disconnected:', event.message);
+    });
+
+    // Data events
+    serialConnectionCapacitor.addEvent('dataReceived', (event) => {
+      console.log('Received:', event.data);
+    });
+
+    serialConnectionCapacitor.addEvent('writeSuccess', (event) => {
+      console.log('Write successful:', event.message);
+    });
+
+    // Error events
+    serialConnectionCapacitor.addEvent('readError', (event) => {
       console.error('Read error:', event.error);
     });
 
-    serialConnectionCapacitor.addListener('connectionError', (event) => {
+    serialConnectionCapacitor.addEvent('connectionError', (event) => {
       console.error('Connection error:', event.error);
     });
   }

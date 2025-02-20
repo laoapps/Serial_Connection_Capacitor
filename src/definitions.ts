@@ -93,6 +93,7 @@ export interface SerialPortPlugin {
    * @returns Promise that resolves with the read data.
    */
   startReading(): Promise<void>;
+
   /**
    * Stop reading data from the serial port.
    * @returns Promise that resolves with the read data.
@@ -104,26 +105,21 @@ export interface SerialPortPlugin {
    */
   close(): Promise<void>;
 
-    /**
-   * Demonstrate trigger Events.
-   */
-  triggerEvent(eventName: string, data: any): void;
-
   /**
    * Add listener for serial port events
    * @param eventName The event to listen for
    * @param listenerFunc Callback function when event occurs
    */
-  addListener(
+  addEvent(
     eventName: SerialPortEventTypes,
     listenerFunc: (event: SerialPortEventData) => void
-  ): void;
+  ): Promise<any>;
 
   /**
    * Remove listener for serial port events
    * @param eventName The event to stop listening for
    */
-  removeListener(
+  removeEvent(
     eventName: SerialPortEventTypes
-  ): void;
+  ): Promise<void>;
 }

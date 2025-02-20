@@ -1,5 +1,4 @@
 import { registerPlugin } from '@capacitor/core';
-
 import type { SerialPortPlugin } from './definitions';
 
 /**
@@ -24,6 +23,8 @@ import type { SerialPortPlugin } from './definitions';
  */
 const serialconnectioncapacitor = registerPlugin<SerialPortPlugin>('serialconnectioncapacitor', {
   web: () => import('./web').then((m) => new m.SerialConnectionCapacitorWeb()),
+  android: () => import('./android').then((m) => new m.SerialConnectionCapacitorAndroid()),
+  // ios: () => import('./ios').then((m) => new m.SerialConnectionCapacitorIOS()),
 });
 
 export * from './definitions';

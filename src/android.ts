@@ -1,29 +1,8 @@
+import { WebPlugin, ListenerCallback, PluginListenerHandle } from '@capacitor/core';
 import type { SerialPortPlugin, SerialPortOptions, SerialPortWriteOptions, SerialPortListResult, SerialPortEventData, SerialPortEventTypes } from './definitions';
 
-/**
- * @name SerialPortPlugin
- * @description Serial port communication plugin for Capacitor applications.
- * @method listPorts
- * @method open
- * @method write
- * @method read
- * @method close
- * @usage
- * ```typescript
- * import { serialconnectioncapacitor } from 'serialconnectioncapacitor';
- * 
- * const serial = new serialconnectioncapacitor();
- * const ports = await serial.listPorts();
- * console.log('Available ports:', ports);
- * 
- * await serial.open({
- *   portPath: '/dev/tty.usbserial',
- *   baudRate: 9600
- * });
- * ```
- */
-export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
-  private listeners: { [eventName: string]: (data: any) => void } = {};
+export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
+  protected listeners: { [eventName: string]: ListenerCallback[] } = {};
 
   /**
    * Lists available serial ports.
@@ -80,22 +59,35 @@ export class SerialConnectionCapacitorWeb implements SerialPortPlugin {
    * @param eventName The event to listen for
    * @param listenerFunc Callback function when event occurs
    */
+
   async addEvent(
     eventName: SerialPortEventTypes,
     listenerFunc: (event: SerialPortEventData) => void
-  ): Promise<void> {
-    this.listeners[eventName] = listenerFunc;
-    return Promise.resolve();
+  ): Promise<PluginListenerHandle> {
+    if (!this.listeners[eventName]) {
+      this.listeners[eventName] = [];
+    }
+    this.listeners[eventName].push(listenerFunc as ListenerCallback);
+
+    return Promise.resolve({
+      remove: async () => {
+        this.removeEvent(eventName, listenerFunc);
+      }
+    });
   }
 
-  /**
-   * Remove listener for serial port events
-   * @param eventName The event to stop listening for
-   */
   async removeEvent(
-    eventName: SerialPortEventTypes
+    eventName: SerialPortEventTypes,
+    listenerFunc?: (event: SerialPortEventData) => void
   ): Promise<void> {
-    delete this.listeners[eventName];
+    if (!this.listeners[eventName]) {
+      return Promise.resolve();
+    }
+    if (listenerFunc) {
+      this.listeners[eventName] = this.listeners[eventName].filter(callback => callback !== listenerFunc);
+    } else {
+      delete this.listeners[eventName];
+    }
     return Promise.resolve();
   }
 }
