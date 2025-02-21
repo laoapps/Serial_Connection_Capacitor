@@ -8,6 +8,7 @@ import type {
   SerialPortEventTypes 
 } from './definitions';
 
+
 export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
   protected listeners: { [eventName: string]: ListenerCallback[] } = {};
 
@@ -19,41 +20,27 @@ export class SerialConnectionCapacitorAndroid extends WebPlugin implements Seria
   }
 
   async listPorts(): Promise<SerialPortListResult> {
-    // Implement the method to list available serial ports on Android
-    // throw new Error('Method not implemented for Android platform.');
-    const result = await this.listPorts();
-    console.log('Available ports:', result.ports);
-    return result;
+    return SerialConnectionCapacitor.listPorts();
   }
 
-  async open(_options: SerialPortOptions): Promise<void> {
-    // Implement the method to open a serial port connection on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.open(_options);
+  async open(options: SerialPortOptions): Promise<void> {
+    return SerialConnectionCapacitor.open(options);
   }
 
-  async write(_options: SerialPortWriteOptions): Promise<void> {
-    // Implement the method to write data to the serial port on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.write(_options);
+  async write(options: SerialPortWriteOptions): Promise<void> {
+    return SerialConnectionCapacitor.write(options);
   }
 
   async startReading(): Promise<void> {
-    // Implement the method to start reading data from the serial port on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.startReading();
+    return SerialConnectionCapacitor.startReading();
   }
 
   async stopReading(): Promise<void> {
-    // Implement the method to stop reading data from the serial port on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.stopReading();
+    return SerialConnectionCapacitor.stopReading();
   }
 
   async close(): Promise<void> {
-    // Implement the method to close the serial port connection on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.close();
+    return SerialConnectionCapacitor.close();
   }
 
   async addEvent(

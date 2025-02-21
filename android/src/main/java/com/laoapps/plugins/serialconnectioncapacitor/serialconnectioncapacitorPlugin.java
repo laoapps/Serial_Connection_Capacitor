@@ -54,6 +54,11 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
+        if (serialConnection.isOpen()) {
+            call.reject("A connection is already open. Please close the existing connection first.");
+            return;
+        }
+
         String portPath = call.getString("portPath");
         int baudRate = call.getInt("baudRate", 9600);
 
