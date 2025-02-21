@@ -88,4 +88,8 @@ public class SerialConnectionCapacitor {
 
         return ports;
     }
+
+    public boolean isOpen() {
+        return connection != null;
+    }
 }
