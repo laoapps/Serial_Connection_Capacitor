@@ -20,38 +20,38 @@ export class SerialConnectionCapacitorAndroid extends WebPlugin implements Seria
 
   async listPorts(): Promise<SerialPortListResult> {
     // Implement the method to list available serial ports on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.listPorts();
+    throw new Error('Method not implemented for Android platform.');
+    // return this.listPorts();
   }
 
   async open(_options: SerialPortOptions): Promise<void> {
     // Implement the method to open a serial port connection on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.open(_options);
+    throw new Error('Method not implemented for Android platform.');
+    // return this.open(_options);
   }
 
   async write(_options: SerialPortWriteOptions): Promise<void> {
     // Implement the method to write data to the serial port on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.write(_options);
+    throw new Error('Method not implemented for Android platform.');
+    // return this.write(_options);
   }
 
   async startReading(): Promise<void> {
     // Implement the method to start reading data from the serial port on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.startReading();
+    throw new Error('Method not implemented for Android platform.');
+    // return this.startReading();
   }
 
   async stopReading(): Promise<void> {
     // Implement the method to stop reading data from the serial port on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.stopReading();
+    throw new Error('Method not implemented for Android platform.');
+    // return this.stopReading();
   }
 
   async close(): Promise<void> {
     // Implement the method to close the serial port connection on Android
-    // throw new Error('Method not implemented for Android platform.');
-    return this.close();
+    throw new Error('Method not implemented for Android platform.');
+    // return this.close();
   }
 
   async addEvent(
