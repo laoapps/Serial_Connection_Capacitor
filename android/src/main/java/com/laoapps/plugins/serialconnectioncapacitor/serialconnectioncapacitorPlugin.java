@@ -31,20 +31,25 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     public void listPorts(PluginCall call) {
         JSObject ret = new JSObject();
         JSObject ports = new JSObject();
-
-        if (usbManager == null) {
-            call.reject("USB Manager not initialized");
-            return;
-        }
-
         HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+        int count = 0;
         for (Map.Entry<String, UsbDevice> entry : deviceList.entrySet()) {
+            if (count >= 10) break; // Limit to 10 devices
             UsbDevice device = entry.getValue();
             ports.put(device.getDeviceName(), device.getDeviceId());
+            count++;
         }
-
         ret.put("ports", ports);
         call.resolve(ret);
+
+        // JSObject ret = new JSObject();
+        // HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+        // HashMap<String, Integer> portMap = new HashMap<>();
+        // for (UsbDevice device : deviceList.values()) {
+        //     portMap.put(device.getDeviceName(), device.getDeviceId());
+        // }
+        // ret.put("ports", portMap); // Capacitor will serialize this as JSON
+        // call.resolve(ret);
     }
 
     @PluginMethod

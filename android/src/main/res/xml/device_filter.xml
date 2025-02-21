@@ -4,10 +4,14 @@
     <usb-device vendor-id="1027" product-id="24577" />
     <!-- Add more device filters as needed -->
     <!-- Add USB device filters for serial devices -->
-    <usb-device vendor-id="0x2341" product-id="0x0043" /> <!-- Arduino Uno -->
-    <usb-device vendor-id="0x2341" product-id="0x0001" /> <!-- Arduino Mega -->
-    <usb-device vendor-id="0x2A03" /> <!-- Arduino -->
-    <usb-device vendor-id="0x0403" product-id="0x6001" /> <!-- FTDI -->
-    <usb-device vendor-id="0x1A86" product-id="0x7523" /> <!-- CH340 -->
+       <!-- Add USB device filters for RS232 and RS485 devices -->
+    <!-- Example vendor and product IDs for RS232 and RS485 devices -->
+    <usb-device vendor-id="0x0403" product-id="0x6001" /> <!-- FTDI RS232 -->
+    <usb-device vendor-id="0x067B" product-id="0x2303" /> <!-- Prolific RS232 -->
+    <usb-device vendor-id="0x1A86" product-id="0x7523" /> <!-- CH340 RS232 -->
+    <usb-device vendor-id="0x10C4" product-id="0xEA60" /> <!-- Silicon Labs CP210x RS232 -->
+    <usb-device vendor-id="0x0403" product-id="0x6015" /> <!-- FTDI RS485 -->
+    <usb-device vendor-id="0x067B" product-id="0x23A3" /> <!-- Prolific RS485 -->
+    <!-- Add more device filters as needed -->
     
 </resources>
