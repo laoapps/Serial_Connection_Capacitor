@@ -189,14 +189,15 @@ Add listener for serial port events
 ### removeEvent(...)
 
 ```typescript
-removeEvent(eventName: SerialPortEventTypes) => Promise<void>
+removeEvent(eventName: SerialPortEventTypes, listenerFunc?: ((event: SerialPortEventData) => void) | undefined) => Promise<void>
 ```
 
 Remove listener for serial port events
 
-| Param           | Type                                                                  | Description                     |
-| --------------- | --------------------------------------------------------------------- | ------------------------------- |
-| **`eventName`** | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code> | The event to stop listening for |
+| Param              | Type                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code>                     |
+| **`listenerFunc`** | <code>((event: <a href="#serialporteventdata">SerialPortEventData</a>) =&gt; void)</code> |
 
 --------------------
 

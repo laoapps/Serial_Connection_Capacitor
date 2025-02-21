@@ -120,9 +120,10 @@ export interface SerialPortPlugin {
 
   /**
    * Remove listener for serial port events
-   * @param eventName The event to stop listening for
+   * @param listener The event to stop listening for
    */
   removeEvent(
-    eventName: SerialPortEventTypes
+    eventName: SerialPortEventTypes,
+    listenerFunc?: (event: SerialPortEventData) => void
   ): Promise<void>;
 }

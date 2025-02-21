@@ -2,7 +2,7 @@
 <html lang="en" dir="ltr" class="hydrated">
   <head>
     <meta charset="UTF-8" />
-    <title>Example Capacitor App</title>
+    <title>Serial Connection Test</title>
     <meta
       name="viewport"
       content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
@@ -19,6 +19,13 @@
       <label for="echoInput">Echo Text:</label>
       <input type="text" id="echoInput" name="echoInput" value="Hello World!" />
       <button onclick="testEcho()">Click Me!</button>
+      <br><br>
+      <button onclick="testConnection()">Connect to Serial Port</button>
+      <br><br>
+      <input type="text" id="echoInput" placeholder="Enter data to send">
+      <button onclick="sendData()">Send Data</button>
+      <br><br>
+      <button onclick="closeConnection()">Close Connection</button>
     </main>
 
     <script src="./js/example.js" type="module"></script>

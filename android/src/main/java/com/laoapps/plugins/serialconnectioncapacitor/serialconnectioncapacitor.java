@@ -3,24 +3,20 @@ package com.laoapps.plugins.serialconnectioncapacitor;
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
-import android.hardware.usb.UsbEndpoint;
-import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.util.Log;
+
+import com.hoho.android.usbserial.driver.UsbSerialDriver;
+import com.hoho.android.usbserial.driver.UsbSerialPort;
+import com.hoho.android.usbserial.driver.UsbSerialProber;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
 public class SerialConnectionCapacitor {
-    private static final String TAG = "SerialConnection";
-    private Context context;
-    private UsbManager usbManager;
+    private final Context context;
+    private UsbSerialPort port;
     private UsbDeviceConnection connection;
-    private InputStream inputStream;
-    private OutputStream outputStream;
+    private final UsbManager usbManager;
 
     public SerialConnectionCapacitor(Context context) {
         this.context = context;
@@ -29,63 +25,90 @@ public class SerialConnectionCapacitor {
 
     public boolean openConnection(String portPath, int baudRate) {
         try {
-            if (usbManager == null) {
-                Log.e(TAG, "UsbManager is null");
+            // Find the device by path
+            UsbDevice targetDevice = null;
+            for (UsbDevice device : usbManager.getDeviceList().values()) {
+                if (device.getDeviceName().equals(portPath)) {
+                    targetDevice = device;
+                    break;
+                }
+            }
+
+            if (targetDevice == null) {
                 return false;
             }
 
-            for (UsbDevice device : usbManager.getDeviceList().values()) {
-                if (device.getDeviceName().equals(portPath)) {
-                    connection = usbManager.openDevice(device);
-                    if (connection != null) {
-                        UsbInterface usbInterface = device.getInterface(0);
-                        UsbEndpoint endpointIn = usbInterface.getEndpoint(0);
-                        UsbEndpoint endpointOut = usbInterface.getEndpoint(1);
-
-                        connection.claimInterface(usbInterface, true);
-
-                        inputStream = new SerialInputStream(connection, endpointIn);
-                        outputStream = new SerialOutputStream(connection, endpointOut);
-
-                        Log.d(TAG, "Connection opened on port: " + portPath);
-                        return true;
-                    }
-                }
+            // Find available drivers
+            List<UsbSerialDriver> availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
+            if (availableDrivers.isEmpty()) {
+                return false;
             }
-            Log.e(TAG, "Device not found");
-            return false;
-        } catch (Exception e) {
-            Log.e(TAG, "Error opening serial port", e);
+
+            // Use the first available driver
+            UsbSerialDriver driver = availableDrivers.get(0);
+            connection = usbManager.openDevice(driver.getDevice());
+            if (connection == null) {
+                return false;
+            }
+
+            port = driver.getPorts().get(0); // Most devices have just one port
+            port.open(connection);
+            port.setParameters(baudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+            return true;
+        } catch (IOException e) {
             return false;
         }
+    }
+
+    public java.io.OutputStream getOutputStream() throws IOException {
+        if (port == null) {
+            throw new IOException("Port not initialized");
+        }
+        return new java.io.OutputStream() {
+            @Override
+            public void write(int b) throws IOException {
+                port.write(new byte[]{(byte) b}, 1000);
+            }
+
+            @Override
+            public void write(byte[] b) throws IOException {
+                port.write(b, 1000);
+            }
+        };
+    }
+
+    public java.io.InputStream getInputStream() throws IOException {
+        if (port == null) {
+            throw new IOException("Port not initialized");
+        }
+        return new java.io.InputStream() {
+            @Override
+            public int read() throws IOException {
+                byte[] buffer = new byte[1];
+                int bytesRead = port.read(buffer, 1000);
+                return (bytesRead > 0) ? (buffer[0] & 0xff) : -1;
+            }
+
+            @Override
+            public int read(byte[] b) throws IOException {
+                return port.read(b, 1000);
+            }
+        };
     }
 
     public void closeConnection() {
-        if (connection != null) {
-            connection.close();
-            connection = null;
-            inputStream = null;
-            outputStream = null;
-        }
-    }
-
-    public InputStream getInputStream() {
-        return inputStream;
-    }
-
-    public OutputStream getOutputStream() {
-        return outputStream;
-    }
-
-    public Map<String, Integer> listPorts() {
-        Map<String, Integer> ports = new HashMap<>();
-
-        if (usbManager != null) {
-            for (UsbDevice device : usbManager.getDeviceList().values()) {
-                ports.put(device.getDeviceName(), device.getDeviceId());
+        try {
+            if (port != null) {
+                port.close();
             }
+            if (connection != null) {
+                connection.close();
+            }
+        } catch (IOException e) {
+            // Ignore cleanup errors
+        } finally {
+            port = null;
+            connection = null;
         }
-
-        return ports;
     }
 }

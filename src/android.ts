@@ -9,57 +9,74 @@ import type {
 } from './definitions';
 
 export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
-  // Use the correct listener type from WebPlugin
-  protected _listeners: { [eventName: string]: ListenerCallback[] } = {};
+  protected listeners: { [eventName: string]: ListenerCallback[] } = {};
+
+  constructor() {
+    super({
+      name: 'SerialConnectionCapacitor',
+      platforms: ['android']
+    });
+  }
 
   async listPorts(): Promise<SerialPortListResult> {
-    return this.native.listPorts();
+    // Implement the method to list available serial ports on Android
+    throw new Error('Method not implemented for Android platform.');
   }
 
-  async open(options: SerialPortOptions): Promise<void> {
-    return this.native.open(options);
+  async open(_options: SerialPortOptions): Promise<void> {
+    // Implement the method to open a serial port connection on Android
+    throw new Error('Method not implemented for Android platform.');
   }
 
-  async write(options: SerialPortWriteOptions): Promise<void> {
-    return this.native.write(options);
+  async write(_options: SerialPortWriteOptions): Promise<void> {
+    // Implement the method to write data to the serial port on Android
+    throw new Error('Method not implemented for Android platform.');
   }
 
   async startReading(): Promise<void> {
-    return this.native.startReading();
+    // Implement the method to start reading data from the serial port on Android
+    throw new Error('Method not implemented for Android platform.');
   }
 
   async stopReading(): Promise<void> {
-    return this.native.stopReading();
+    // Implement the method to stop reading data from the serial port on Android
+    throw new Error('Method not implemented for Android platform.');
   }
 
   async close(): Promise<void> {
-    return this.native.close();
+    // Implement the method to close the serial port connection on Android
+    throw new Error('Method not implemented for Android platform.');
   }
 
   async addEvent(
     eventName: SerialPortEventTypes,
     listenerFunc: (event: SerialPortEventData) => void
   ): Promise<PluginListenerHandle> {
-    if (!this._listeners[eventName]) {
-      this._listeners[eventName] = [];
+    if (!this.listeners[eventName]) {
+      this.listeners[eventName] = [];
     }
-    this._listeners[eventName].push(listenerFunc as ListenerCallback);
-    
-    return this.addListener(eventName, (event: SerialPortEventData) => {
-      const listeners = this._listeners[eventName] || [];
-      listeners.forEach(listener => listener(event));
+    this.listeners[eventName].push(listenerFunc as ListenerCallback);
+
+    return Promise.resolve({
+      remove: async () => {
+        this.removeEvent(eventName, listenerFunc);
+      }
     });
   }
 
-  async removeEvent(eventName: SerialPortEventTypes): Promise<void> {
-    if (this._listeners[eventName]) {
-      delete this._listeners[eventName];
-      await this.removeAllListeners();
+  async removeEvent(
+    eventName: SerialPortEventTypes,
+    listenerFunc?: (event: SerialPortEventData) => void
+  ): Promise<void> {
+    if (!this.listeners[eventName]) {
+      return Promise.resolve();
     }
-  }
-
-  private get native(): SerialPortPlugin {
-    return (window as any).SerialConnectionCapacitor;
+    if (listenerFunc) {
+      this.listeners[eventName] = this.listeners[eventName].filter(callback => callback !== listenerFunc);
+    } else {
+      delete this.listeners[eventName];
+    }
+    return Promise.resolve();
   }
 }
 
