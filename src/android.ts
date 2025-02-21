@@ -1,4 +1,4 @@
-import { WebPlugin, ListenerCallback, PluginListenerHandle } from '@capacitor/core';
+import { WebPlugin, ListenerCallback, PluginListenerHandle, registerPlugin } from '@capacitor/core';
 import type { 
   SerialPortPlugin, 
   SerialPortOptions, 
@@ -8,39 +8,42 @@ import type {
   SerialPortEventTypes 
 } from './definitions';
 
+const SerialConnectionCapacitor = registerPlugin<SerialPortPlugin>('SerialConnectionCapacitor');
 
 export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
   protected listeners: { [eventName: string]: ListenerCallback[] } = {};
 
   constructor() {
     super();
-    // super({
-    //   name: 'SerialConnectionCapacitor',
-    //   platforms: ['android']
-    // });
   }
 
   async listPorts(): Promise<SerialPortListResult> {
+    console.log("Calling listPorts on Android...");
     return SerialConnectionCapacitor.listPorts();
   }
 
   async open(options: SerialPortOptions): Promise<void> {
+    console.log("Opening serial port:", options);
     return SerialConnectionCapacitor.open(options);
   }
 
   async write(options: SerialPortWriteOptions): Promise<void> {
+    console.log("Writing to serial port:", options);
     return SerialConnectionCapacitor.write(options);
   }
 
   async startReading(): Promise<void> {
+    console.log("Starting serial read...");
     return SerialConnectionCapacitor.startReading();
   }
 
   async stopReading(): Promise<void> {
+    console.log("Stopping serial read...");
     return SerialConnectionCapacitor.stopReading();
   }
 
   async close(): Promise<void> {
+    console.log("Closing serial connection...");
     return SerialConnectionCapacitor.close();
   }
 
@@ -76,5 +79,4 @@ export class SerialConnectionCapacitorAndroid extends WebPlugin implements Seria
   }
 }
 
-const SerialConnectionCapacitor = new SerialConnectionCapacitorAndroid();
 export { SerialConnectionCapacitor };
