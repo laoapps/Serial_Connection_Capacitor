@@ -9,39 +9,39 @@ import type {
 } from './definitions';
 
 
-export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
+export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPortPlugin {
   protected listeners: { [eventName: string]: ListenerCallback[] } = {};
 
   constructor() {
     super();
     // super({
     //   name: 'SerialConnectionCapacitor',
-    //   platforms: ['android']
+    //   platforms: ['web']
     // });
   }
 
   async listPorts(): Promise<SerialPortListResult> {
-    return SerialConnectionCapacitor.listPorts();
+    throw new Error('listPorts is not supported on the web platform.');
   }
 
-  async open(options: SerialPortOptions): Promise<void> {
-    return SerialConnectionCapacitor.open(options);
+  async open(_options: SerialPortOptions): Promise<void> {
+    throw new Error('open is not supported on the web platform.');
   }
 
-  async write(options: SerialPortWriteOptions): Promise<void> {
-    return SerialConnectionCapacitor.write(options);
+  async write(_options: SerialPortWriteOptions): Promise<void> {
+    throw new Error('write is not supported on the web platform.');
   }
 
   async startReading(): Promise<void> {
-    return SerialConnectionCapacitor.startReading();
+    throw new Error('startReading is not supported on the web platform.');
   }
 
   async stopReading(): Promise<void> {
-    return SerialConnectionCapacitor.stopReading();
+    throw new Error('stopReading is not supported on the web platform.');
   }
 
   async close(): Promise<void> {
-    return SerialConnectionCapacitor.close();
+    throw new Error('close is not supported on the web platform.');
   }
 
   async addEvent(
@@ -76,5 +76,5 @@ export class SerialConnectionCapacitorAndroid extends WebPlugin implements Seria
   }
 }
 
-const SerialConnectionCapacitor = new SerialConnectionCapacitorAndroid();
+const SerialConnectionCapacitor = new SerialConnectionCapacitorWeb();
 export { SerialConnectionCapacitor };
