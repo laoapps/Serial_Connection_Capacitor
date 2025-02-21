@@ -3,6 +3,7 @@ package com.laoapps.plugins.serialconnectioncapacitor;
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -15,13 +16,14 @@ import java.util.Map;
 
 @CapacitorPlugin(name = "SerialConnectionCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
+    private static final String TAG = "SerialConnectionCapacitor";
     private UsbManager usbManager;
     private SerialConnectionCapacitor serialConnection;
-    private boolean isReading = false; // ✅ FIX: Declare class-level variable
+    private boolean isReading = false;
 
     @Override
     public void load() {
-        usbManager = (UsbManager) getContext().getSystemService(Context.USB_SERVICE); // ✅ FIX: Initialize usbManager
+        usbManager = (UsbManager) getContext().getSystemService(Context.USB_SERVICE);
         serialConnection = new SerialConnectionCapacitor(getContext());
     }
 
@@ -30,7 +32,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         JSObject ret = new JSObject();
         JSObject ports = new JSObject();
 
-        if (usbManager == null) { // ✅ FIX: Handle uninitialized usbManager
+        if (usbManager == null) {
             call.reject("USB Manager not initialized");
             return;
         }
@@ -47,7 +49,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     @PluginMethod
     public void open(PluginCall call) {
-        if (serialConnection == null) { // ✅ FIX: Check initialization
+        if (serialConnection == null) {
             call.reject("SerialConnection not initialized");
             return;
         }
@@ -62,15 +64,23 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
         boolean success = serialConnection.openConnection(portPath, baudRate);
         if (success) {
+            Log.d(TAG, "Connection opened successfully");
             call.resolve();
+            JSObject ret = new JSObject();
+            ret.put("message", "Connection opened successfully");
+            notifyListeners("connectionOpened", ret);
         } else {
+            Log.e(TAG, "Failed to open connection");
             call.reject("Failed to open connection");
+            JSObject error = new JSObject();
+            error.put("error", "Failed to open connection");
+            notifyListeners("connectionError", error);
         }
     }
 
     @PluginMethod
     public void write(PluginCall call) {
-        if (serialConnection == null || serialConnection.getOutputStream() == null) { // ✅ FIX: Check initialization
+        if (serialConnection == null || serialConnection.getOutputStream() == null) {
             call.reject("Port not open or SerialConnection is null");
             return;
         }
@@ -84,21 +94,32 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         try {
             serialConnection.getOutputStream().write(data.getBytes());
             serialConnection.getOutputStream().flush();
+            Log.d(TAG, "Data written to serial port: " + data);
             call.resolve();
+            JSObject ret = new JSObject();
+            ret.put("message", "Data written successfully");
+            notifyListeners("writeSuccess", ret);
         } catch (IOException e) {
+            Log.e(TAG, "Write error: " + e.getMessage());
             call.reject("Write error: " + e.getMessage());
+            JSObject error = new JSObject();
+            error.put("error", "Write error: " + e.getMessage());
+            notifyListeners("writeError", error);
         }
     }
 
     @PluginMethod
     public void startReading(PluginCall call) {
-        if (serialConnection == null || serialConnection.getInputStream() == null) { // ✅ FIX: Check initialization
+        if (serialConnection == null || serialConnection.getInputStream() == null) {
             call.reject("Port not open");
             return;
         }
 
         isReading = true;
-        call.resolve(); // ✅ FIX: Resolve before starting thread
+        call.resolve();
+        JSObject ret = new JSObject();
+        ret.put("message", "Reading started");
+        notifyListeners("readingStarted", ret);
 
         new Thread(() -> {
             try {
@@ -106,15 +127,15 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 while (isReading) {
                     int bytesRead = serialConnection.getInputStream().read(buffer);
                     if (bytesRead > 0) {
-                        JSObject ret = new JSObject();
-                        ret.put("data", new String(buffer, 0, bytesRead));
-                        notifyListeners("dataReceived", ret); // ✅ Send event to TypeScript
+                        JSObject data = new JSObject();
+                        data.put("data", new String(buffer, 0, bytesRead));
+                        notifyListeners("dataReceived", data);
                     }
                 }
             } catch (IOException e) {
                 JSObject error = new JSObject();
                 error.put("error", "Read error: " + e.getMessage());
-                notifyListeners("readError", error); // ✅ Notify TypeScript about error
+                notifyListeners("readError", error);
             }
         }).start();
     }
@@ -125,7 +146,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
         try {
             if (serialConnection != null && serialConnection.getInputStream() != null) {
-                serialConnection.getInputStream().close(); // ✅ FIX: Forcefully close stream
+                serialConnection.getInputStream().close();
             }
         } catch (IOException e) {
             call.reject("Error closing input stream: " + e.getMessage());
@@ -133,6 +154,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         }
 
         call.resolve();
+        JSObject ret = new JSObject();
+        ret.put("message", "Reading stopped");
+        notifyListeners("readingStopped", ret);
     }
 
     @PluginMethod
@@ -141,5 +165,8 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             serialConnection.closeConnection();
         }
         call.resolve();
+        JSObject ret = new JSObject();
+        ret.put("message", "Connection closed");
+        notifyListeners("connectionClosed", ret);
     }
 }
