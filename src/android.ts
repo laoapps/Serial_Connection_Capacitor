@@ -1,4 +1,5 @@
-import { WebPlugin, ListenerCallback, PluginListenerHandle, registerPlugin } from '@capacitor/core';
+// android.ts
+import { registerPlugin, WebPlugin } from '@capacitor/core';
 import type { 
   SerialPortPlugin, 
   SerialPortOptions, 
@@ -8,75 +9,55 @@ import type {
   SerialPortEventTypes 
 } from './definitions';
 
-const SerialConnectionCapacitor = registerPlugin<SerialPortPlugin>('SerialConnectionCapacitor');
-
-export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
-  protected listeners: { [eventName: string]: ListenerCallback[] } = {};
-
+class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPortPlugin {
   constructor() {
-    super();
-  }
-
-  async listPorts(): Promise<SerialPortListResult> {
-    console.log("Calling listPorts on Android...");
-    return SerialConnectionCapacitor.listPorts();
-  }
-
-  async open(options: SerialPortOptions): Promise<void> {
-    console.log("Opening serial port:", options);
-    return SerialConnectionCapacitor.open(options);
-  }
-
-  async write(options: SerialPortWriteOptions): Promise<void> {
-    console.log("Writing to serial port:", options);
-    return SerialConnectionCapacitor.write(options);
-  }
-
-  async startReading(): Promise<void> {
-    console.log("Starting serial read...");
-    return SerialConnectionCapacitor.startReading();
-  }
-
-  async stopReading(): Promise<void> {
-    console.log("Stopping serial read...");
-    return SerialConnectionCapacitor.stopReading();
-  }
-
-  async close(): Promise<void> {
-    console.log("Closing serial connection...");
-    return SerialConnectionCapacitor.close();
-  }
-
-  async addEvent(
-    eventName: SerialPortEventTypes,
-    listenerFunc: (event: SerialPortEventData) => void
-  ): Promise<PluginListenerHandle> {
-    if (!this.listeners[eventName]) {
-      this.listeners[eventName] = [];
-    }
-    this.listeners[eventName].push(listenerFunc as ListenerCallback);
-
-    return Promise.resolve({
-      remove: async () => {
-        this.removeEvent(eventName, listenerFunc);
-      }
+    super({
+      name: 'SerialConnectionCapacitor',
+      platforms: ['web'],
     });
   }
 
+  async listPorts(): Promise<SerialPortListResult> {
+    throw new Error('USB serial not supported on web');
+  }
+
+  async open(_options: SerialPortOptions): Promise<void> {
+    throw new Error('USB serial not supported on web');
+  }
+
+  async write(_options: SerialPortWriteOptions): Promise<void> {
+    throw new Error('USB serial not supported on web');
+  }
+
+  async startReading(): Promise<void> {
+    throw new Error('USB serial not supported on web');
+  }
+
+  async stopReading(): Promise<void> {
+    throw new Error('USB serial not supported on web');
+  }
+
+  async close(): Promise<void> {
+    throw new Error('USB serial not supported on web');
+  }
+
+  async addEvent(
+    _eventName: SerialPortEventTypes,
+    _listenerFunc: (event: SerialPortEventData) => void
+  ): Promise<import('@capacitor/core').PluginListenerHandle> {
+    throw new Error('Event listening not supported on web');
+  }
+
   async removeEvent(
-    eventName: SerialPortEventTypes,
-    listenerFunc?: (event: SerialPortEventData) => void
+    _eventName: SerialPortEventTypes,
+    _listenerFunc?: (event: SerialPortEventData) => void
   ): Promise<void> {
-    if (!this.listeners[eventName]) {
-      return Promise.resolve();
-    }
-    if (listenerFunc) {
-      this.listeners[eventName] = this.listeners[eventName].filter(callback => callback !== listenerFunc);
-    } else {
-      delete this.listeners[eventName];
-    }
-    return Promise.resolve();
+    throw new Error('Event removing not supported on web');
   }
 }
+
+const SerialConnectionCapacitor = registerPlugin<SerialPortPlugin>('SerialConnectionCapacitor', {
+  web: () => Promise.resolve(new SerialConnectionCapacitorWeb()),
+});
 
 export { SerialConnectionCapacitor };
