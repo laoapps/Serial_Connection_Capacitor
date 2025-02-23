@@ -4,8 +4,8 @@
     "declaration": true,
     "esModuleInterop": true,
     "inlineSources": true,
-    "lib": ["dom", "es5","ES2015"],
-    "module": "CommonJS",
+    "lib": ["dom", "es2017"],
+    "module": "esnext",
     "moduleResolution": "node",
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": true,
@@ -14,7 +14,7 @@
     "pretty": true,
     "sourceMap": true,
     "strict": true,
-    "target": "ES5"
+    "target": "es2017"
   },
-  "files": ["src/android.ts"]
+  "files": ["src/index.ts"]
 }

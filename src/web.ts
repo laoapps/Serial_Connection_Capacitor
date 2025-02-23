@@ -1,4 +1,4 @@
-import { WebPlugin, ListenerCallback, PluginListenerHandle, registerPlugin } from '@capacitor/core';
+import { WebPlugin, ListenerCallback, PluginListenerHandle } from '@capacitor/core';
 import type { 
   SerialPortPlugin, 
   SerialPortOptions, 
@@ -8,43 +8,40 @@ import type {
   SerialPortEventTypes 
 } from './definitions';
 
-const SerialConnectionCapacitor = registerPlugin<SerialPortPlugin>('SerialConnectionCapacitor');
 
-export class SerialConnectionCapacitorAndroid extends WebPlugin implements SerialPortPlugin {
+export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPortPlugin {
   protected listeners: { [eventName: string]: ListenerCallback[] } = {};
 
   constructor() {
     super();
+    // super({
+    //   name: 'SerialConnectionCapacitor',
+    //   platforms: ['web']
+    // });
   }
 
   async listPorts(): Promise<SerialPortListResult> {
-    console.log("Calling listPorts on Android...");
-    return SerialConnectionCapacitor.listPorts();
+    throw new Error('listPorts is not supported on the web platform.');
   }
 
-  async open(options: SerialPortOptions): Promise<void> {
-    console.log("Opening serial port:", options);
-    return SerialConnectionCapacitor.open(options);
+  async open(_options: SerialPortOptions): Promise<void> {
+    throw new Error('open is not supported on the web platform.');
   }
 
-  async write(options: SerialPortWriteOptions): Promise<void> {
-    console.log("Writing to serial port:", options);
-    return SerialConnectionCapacitor.write(options);
+  async write(_options: SerialPortWriteOptions): Promise<void> {
+    throw new Error('write is not supported on the web platform.');
   }
 
   async startReading(): Promise<void> {
-    console.log("Starting serial read...");
-    return SerialConnectionCapacitor.startReading();
+    throw new Error('startReading is not supported on the web platform.');
   }
 
   async stopReading(): Promise<void> {
-    console.log("Stopping serial read...");
-    return SerialConnectionCapacitor.stopReading();
+    throw new Error('stopReading is not supported on the web platform.');
   }
 
   async close(): Promise<void> {
-    console.log("Closing serial connection...");
-    return SerialConnectionCapacitor.close();
+    throw new Error('close is not supported on the web platform.');
   }
 
   async addEvent(
@@ -79,4 +76,5 @@ export class SerialConnectionCapacitorAndroid extends WebPlugin implements Seria
   }
 }
 
+const SerialConnectionCapacitor = new SerialConnectionCapacitorWeb();
 export { SerialConnectionCapacitor };

@@ -1,10 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-feature android:name="android.hardware.usb.host" />
+    <!-- USB Host permission -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+    
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.USB_PERMISSION" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
     <application>
-        <activity
+        <!-- USB Device Filter -->
+        <activity 
             android:name=".SerialConnectionCapacitorPlugin"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
