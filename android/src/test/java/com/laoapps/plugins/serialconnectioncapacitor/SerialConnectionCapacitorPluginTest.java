@@ -1,132 +1,141 @@
 package com.laoapps.plugins.serialconnectioncapacitor;
 
-import android.serialport.SerialPort;
-import com.getcapacitor.Bridge;
+import android.content.Context;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginCall;
+import com.felhr.usbserial.UsbSerialDevice;
+import com.felhr.usbserial.UsbSerialInterface;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
-import static org.junit.Assert.assertEquals;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.lang.reflect.Field;
+import java.util.HashMap;
 
+import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 24)
 public class SerialConnectionCapacitorPluginTest {
     @Mock
-    private Bridge bridge;
+    private UsbManager usbManager;
 
     @Mock
-    private SerialPort serialPort;
+    private UsbDevice usbDevice;
 
     @Mock
-    private InputStream inputStream;
+    private UsbSerialDevice serialPort;
 
     @Mock
-    private OutputStream outputStream;
+    private PluginCall call;
+
+    @Mock
+    private Context mockContext;
 
     private SerialConnectionCapacitorPlugin plugin;
-    private PluginCall call;
-    
+
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.openMocks(this);
-        
-        // Create mocks
-        call = mock(PluginCall.class);
-        bridge = mock(Bridge.class);
-        serialPort = mock(SerialPort.class);
-        inputStream = mock(InputStream.class);
-        outputStream = mock(OutputStream.class);
-    
-        // Create plugin spy
+
+        // Create plugin instance
         plugin = spy(new SerialConnectionCapacitorPlugin());
-        
-        // Setup default behaviors
-        when(serialPort.getInputStream()).thenReturn(inputStream);
-        when(serialPort.getOutputStream()).thenReturn(outputStream);
-        
-        // Setup default call behaviors
+    
+        // Mock context and USB manager
+        when(plugin.getContext()).thenReturn(mockContext);
+        when(mockContext.getSystemService(Context.USB_SERVICE)).thenReturn(usbManager);
+    
+        // Call load() after mocks are set up
+        plugin.load();
+    
+        // Reset plugin state
+        plugin.serialPort = null;
+        plugin.isReading = false;
+    
+        // Default mock behaviors
+        when(usbManager.openDevice(usbDevice)).thenReturn(null);
+        when(UsbSerialDevice.createUsbSerialDevice(usbDevice, null)).thenReturn(serialPort);
+        when(serialPort.open()).thenReturn(true);
+        doNothing().when(serialPort).setBaudRate(anyInt());
+        doNothing().when(serialPort).setDataBits(anyInt());
+        doNothing().when(serialPort).setStopBits(anyInt());
+        doNothing().when(serialPort).setParity(anyInt());
+        doNothing().when(serialPort).setFlowControl(anyInt());
+        doNothing().when(serialPort).write(any(byte[].class));
+        doNothing().when(serialPort).close();
         doNothing().when(call).resolve();
         doNothing().when(call).resolve(any(JSObject.class));
         doNothing().when(call).reject(anyString());
     }
 
-    private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(target, value);
-    }
-
     @Test
-    
-public void testOpen_Success() throws Exception {
-    // Setup
-    setPrivateField(plugin, "serialPort", null);
-    String portPath = "/dev/ttyS0";
-    int baudRate = 9600;
-
-    // Mock call parameters
-    when(call.getString("portPath")).thenReturn(portPath);
-    when(call.getInt("baudRate", 9600)).thenReturn(baudRate);
-
-    // Important: Add debug logging
-    System.out.println("Setting up test with portPath: " + portPath + " and baudRate: " + baudRate);
-
-    // Mock createSerialPort method
-    doReturn(serialPort).when(plugin).createSerialPort(eq(portPath), eq(baudRate));
+    public void testListPorts() {
+        // Setup
+    HashMap<String, UsbDevice> deviceList = new HashMap<>();
+    when(usbDevice.getDeviceName()).thenReturn("/dev/bus/usb/001/001");
+    deviceList.put("device1", usbDevice);
+    when(usbManager.getDeviceList()).thenReturn(deviceList);
 
     // Execute
-    plugin.open(call);
+    plugin.listPorts(call);
 
-    // Verify with detailed logging
-    try {
-        verify(plugin, times(1)).createSerialPort(eq(portPath), eq(baudRate));
-        System.out.println("createSerialPort verification passed");
-    } catch (Throwable t) {
-        System.out.println("createSerialPort verification failed: " + t.getMessage());
-        throw t;
-    }
-
-    // Verify other expectations
-    verify(call).resolve();
-    
-    // Verify the serialPort field was set
-    SerialPort actualSerialPort = (SerialPort) getPrivateField(plugin, "serialPort");
-    assertEquals("SerialPort instance not properly set", serialPort, actualSerialPort);
-}
-
-    // Helper method to get private field value
-    private Object getPrivateField(Object target, String fieldName) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return field.get(target);
+    // Verify
+    ArgumentCaptor<JSObject> captor = ArgumentCaptor.forClass(JSObject.class);
+    verify(call).resolve(captor.capture());
+    JSObject result = captor.getValue();
+    JSObject ports = result.getJSObject("ports");
+    assertEquals(0, (int) ports.getInteger("/dev/bus/usb/001/001"));
     }
 
     @Test
-    public void testOpen_PortPathNull() {
-        when(call.getString("portPath")).thenReturn(null);
+    public void testOpen_Success() {
+        when(call.getString("portName")).thenReturn("/dev/bus/usb/001/001");
+        when(call.getInt("baudRate", 9600)).thenReturn(115200);
+        HashMap<String, UsbDevice> deviceList = new HashMap<>();
+        when(usbDevice.getDeviceName()).thenReturn("/dev/bus/usb/001/001");
+        deviceList.put("device1", usbDevice);
+        when(usbManager.getDeviceList()).thenReturn(deviceList);
+
         plugin.open(call);
-        verify(call).reject("Port path is required");
+
+        verify(serialPort).setBaudRate(115200);
+        verify(call).resolve();
+        assertNotNull(plugin.serialPort);
     }
 
     @Test
-    public void testOpen_AlreadyOpen() throws Exception {
-        setPrivateField(plugin, "serialPort", serialPort);
-        when(call.getString("portPath")).thenReturn("/dev/ttyS0");
+    public void testOpen_PortNameNull() {
+        when(call.getString("portName")).thenReturn(null);
+
+        plugin.open(call);
+
+        verify(call).reject("Port name is required");
+        assertNull(plugin.serialPort);
+    }
+
+    @Test
+    public void testOpen_DeviceNotFound() {
+        when(call.getString("portName")).thenReturn("/dev/bus/usb/001/001");
+        when(usbManager.getDeviceList()).thenReturn(new HashMap<>());
+
+        plugin.open(call);
+
+        verify(call).reject("Device not found");
+        assertNull(plugin.serialPort);
+    }
+
+    @Test
+    public void testOpen_AlreadyOpen() {
+        plugin.serialPort = serialPort;
+        when(call.getString("portName")).thenReturn("/dev/bus/usb/001/001");
 
         plugin.open(call);
 
@@ -134,60 +143,86 @@ public void testOpen_Success() throws Exception {
     }
 
     @Test
-    public void testOpen_ThrowsException() throws Exception {
-        // Setup
-        setPrivateField(plugin, "serialPort", null);
-        String portPath = "/dev/ttyS0";
-        int baudRate = 9600;
+    public void testWrite_Success() {
+        plugin.serialPort = serialPort;
+        when(call.getString("data")).thenReturn("test data");
 
-        when(call.getString("portPath")).thenReturn(portPath);
-        when(call.getInt("baudRate", 9600)).thenReturn(baudRate);
-        
-        doThrow(new IOException("Failed to open port"))
-            .when(plugin).createSerialPort(portPath, baudRate);
-
-        // Execute
-        plugin.open(call);
-
-        // Verify
-        verify(call).reject(anyString());
-    }
-
-    @Test
-    public void testWrite_Success() throws Exception {
-        // Setup
-        setPrivateField(plugin, "serialPort", serialPort);
-        String testData = "Hello";
-        when(call.getString("data")).thenReturn(testData);
-        when(serialPort.getOutputStream()).thenReturn(outputStream);
-
-        // Execute
         plugin.write(call);
 
-        // Verify
-        verify(outputStream).write(testData.getBytes());
-        verify(outputStream).flush();
+        verify(serialPort).write("test data".getBytes());
         verify(call).resolve();
     }
 
     @Test
-    public void testWrite_PortNotOpen() throws Exception {
-        setPrivateField(plugin, "serialPort", null);
-        when(call.getString("data")).thenReturn("Hello");
-        
+    public void testWrite_PortNotOpen() {
+        plugin.serialPort = null;
+        when(call.getString("data")).thenReturn("test data");
+
         plugin.write(call);
-        
+
         verify(call).reject("Port not open");
     }
 
     @Test
-    public void testClose_Success() throws Exception {
-        setPrivateField(plugin, "serialPort", serialPort);
-        doNothing().when(serialPort).close();
+    public void testWrite_NullData() {
+        plugin.serialPort = serialPort;
+        when(call.getString("data")).thenReturn(null);
+
+        plugin.write(call);
+
+        verify(call).reject("Invalid data");
+    }
+
+    @Test
+    public void testStartReading_Success() {
+        plugin.serialPort = serialPort;
+
+        plugin.startReading(call);
+
+        verify(call).resolve();
+        verify(serialPort).read(any(UsbSerialInterface.UsbReadCallback.class));
+        assertTrue(plugin.isReading);
+    }
+
+    @Test
+    public void testStartReading_PortNotOpen() {
+        plugin.serialPort = null;
+
+        plugin.startReading(call);
+
+        verify(call).reject("Port not open");
+        assertFalse(plugin.isReading);
+    }
+
+    @Test
+    public void testStopReading_Success() {
+        plugin.serialPort = serialPort;
+        plugin.isReading = true;
+
+        plugin.stopReading(call);
+
+        verify(serialPort).close();
+        verify(call).resolve();
+        assertFalse(plugin.isReading);
+    }
+
+    @Test
+    public void testClose_Success() {
+        plugin.serialPort = serialPort;
 
         plugin.close(call);
 
         verify(serialPort).close();
+        verify(call).resolve();
+        assertNull(plugin.serialPort);
+    }
+
+    @Test
+    public void testClose_NoPort() {
+        plugin.serialPort = null;
+
+        plugin.close(call);
+
         verify(call).resolve();
     }
 }

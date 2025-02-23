@@ -14,8 +14,7 @@
  * limitations under the License. 
  */
 
-package android.serialport;
-
+package com.laoapps.plugins.serialconnectioncapacitor;
 import android.util.Log;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
