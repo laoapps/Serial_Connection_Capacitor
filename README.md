@@ -228,9 +228,9 @@ Options for opening a serial port connection.
 
 Options for writing to a serial port.
 
-| Prop          | Type                | Description                                              |
-| ------------- | ------------------- | -------------------------------------------------------- |
-| **`command`** | <code>string</code> | Command to send to the serial port (hex string or text). |
+| Prop       | Type                | Description                                              |
+| ---------- | ------------------- | -------------------------------------------------------- |
+| **`data`** | <code>string</code> | Command to send to the serial port (hex string or text). |
 
 
 #### PluginListenerHandle

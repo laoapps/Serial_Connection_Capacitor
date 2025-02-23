@@ -22,7 +22,7 @@ export interface SerialPortWriteOptions {
   /**
    * Command to send to the serial port (hex string or text).
    */
-  command: string;
+  data: string;
 }
 
 /**
