@@ -1,6 +1,6 @@
 {
   "name": "serialconnectioncapacitor",
-  "version": "0.0.58",
+  "version": "0.0.60",
   "description": "for serial connection",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -72,9 +72,9 @@
     }
   },
   "dependencies": {
-    "@capacitor/android": "^4.8.2",
-    "@capacitor/cli": "^4.8.2",
-    "@capacitor/core": "^4.8.2",
-    "@capacitor/ios": "^4.8.2"
+    "@capacitor/android": "^5.7.8",
+    "@capacitor/cli": "^5.7.8",
+    "@capacitor/core": "^5.7.8",
+    "@capacitor/ios": "^5.7.8"
   }
 }

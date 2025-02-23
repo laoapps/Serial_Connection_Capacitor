@@ -1,97 +1,85 @@
 package com.laoapps.plugins.serialconnectioncapacitor;
 
-import android.content.Context;
-import android.hardware.usb.UsbDevice;
-import android.hardware.usb.UsbManager;
+import android.serialport.SerialPort;
 import android.util.Log;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-
+import java.io.File;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
 @CapacitorPlugin(name = "SerialConnectionCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
     private static final String TAG = "SerialConnectionCapacitor";
-    private UsbManager usbManager;
-    private SerialConnectionCapacitor serialConnection;
+    private SerialPort serialPort;
     private boolean isReading = false;
 
     @Override
     public void load() {
-        usbManager = (UsbManager) getContext().getSystemService(Context.USB_SERVICE);
-        serialConnection = new SerialConnectionCapacitor(getContext());
+        try {
+            System.loadLibrary("msc");
+            System.loadLibrary("serial_port");
+            Log.d(TAG, "Native libraries loaded successfully");
+        } catch (UnsatisfiedLinkError e) {
+            Log.e(TAG, "Failed to load native libraries: " + e.getMessage());
+        }
     }
 
     @PluginMethod
     public void listPorts(PluginCall call) {
         JSObject ret = new JSObject();
         JSObject ports = new JSObject();
-        HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-        int count = 0;
-        for (Map.Entry<String, UsbDevice> entry : deviceList.entrySet()) {
-            if (count >= 10) break; // Limit to 10 devices
-            UsbDevice device = entry.getValue();
-            ports.put(device.getDeviceName(), device.getDeviceId());
-            count++;
+
+        String[] possiblePorts = {"/dev/ttyS0", "/dev/ttyS1", "/dev/ttyUSB0", "/dev/ttyUSB1"};
+        int index = 0;
+        for (String portPath : possiblePorts) {
+            File portFile = new File(portPath);
+            if (portFile.exists() && portFile.canRead()) {
+                ports.put(portPath, index++);
+            }
         }
+
         ret.put("ports", ports);
         call.resolve(ret);
-
-        // JSObject ret = new JSObject();
-        // HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-        // HashMap<String, Integer> portMap = new HashMap<>();
-        // for (UsbDevice device : deviceList.values()) {
-        //     portMap.put(device.getDeviceName(), device.getDeviceId());
-        // }
-        // ret.put("ports", portMap); // Capacitor will serialize this as JSON
-        // call.resolve(ret);
     }
 
     @PluginMethod
-    public void open(PluginCall call) {
-        if (serialConnection == null) {
-            call.reject("SerialConnection not initialized");
-            return;
-        }
+public void open(PluginCall call) {
+    String portPath = call.getString("portPath");
+    int baudRate = call.getInt("baudRate", 9600);
 
-        if (serialConnection.isOpen()) {
-            call.reject("A connection is already open. Please close the existing connection first.");
-            return;
-        }
-
-        String portPath = call.getString("portPath");
-        int baudRate = call.getInt("baudRate", 9600);
-
-        if (portPath == null) {
-            call.reject("Port path is required");
-            return;
-        }
-
-        boolean success = serialConnection.openConnection(portPath, baudRate);
-        if (success) {
-            Log.d(TAG, "Connection opened successfully");
-            call.resolve();
-            JSObject ret = new JSObject();
-            ret.put("message", "Connection opened successfully");
-            notifyListeners("connectionOpened", ret);
-        } else {
-            Log.e(TAG, "Failed to open connection");
-            call.reject("Failed to open connection");
-            JSObject error = new JSObject();
-            error.put("error", "Failed to open connection");
-            notifyListeners("connectionError", error);
-        }
+    if (portPath == null) {
+        call.reject("Port path is required");
+        return;
     }
+
+    if (serialPort != null) {
+        call.reject("Connection already open");
+        return;
+    }
+
+    try {
+        serialPort = createSerialPort(portPath, baudRate);
+        Log.d(TAG, "Connection opened successfully on " + portPath);
+        JSObject ret = new JSObject();
+        ret.put("message", "Connection opened successfully");
+        notifyListeners("connectionOpened", ret);
+        call.resolve();
+    } catch (IOException | SecurityException e) {
+        Log.e(TAG, "Failed to open connection: " + e.getMessage());
+        JSObject error = new JSObject();
+        error.put("error", "Failed to open connection: " + e.getMessage());
+        notifyListeners("connectionError", error);
+        call.reject("Failed to open connection: " + e.getMessage());
+    }
+}
 
     @PluginMethod
     public void write(PluginCall call) {
-        if (serialConnection == null || serialConnection.getOutputStream() == null) {
-            call.reject("Port not open or SerialConnection is null");
+        if (serialPort == null) {
+            call.reject("Port not open");
             return;
         }
 
@@ -102,50 +90,55 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         }
 
         try {
-            serialConnection.getOutputStream().write(data.getBytes());
-            serialConnection.getOutputStream().flush();
+            byte[] bytes = data.getBytes();
+            serialPort.getOutputStream().write(bytes);
+            serialPort.getOutputStream().flush();
             Log.d(TAG, "Data written to serial port: " + data);
-            call.resolve();
             JSObject ret = new JSObject();
             ret.put("message", "Data written successfully");
             notifyListeners("writeSuccess", ret);
+            call.resolve();
         } catch (IOException e) {
             Log.e(TAG, "Write error: " + e.getMessage());
-            call.reject("Write error: " + e.getMessage());
             JSObject error = new JSObject();
             error.put("error", "Write error: " + e.getMessage());
             notifyListeners("writeError", error);
+            call.reject("Write error: " + e.getMessage());
         }
     }
 
     @PluginMethod
     public void startReading(PluginCall call) {
-        if (serialConnection == null || serialConnection.getInputStream() == null) {
+        if (serialPort == null) {
             call.reject("Port not open");
             return;
         }
 
         isReading = true;
-        call.resolve();
         JSObject ret = new JSObject();
         ret.put("message", "Reading started");
         notifyListeners("readingStarted", ret);
+        call.resolve();
 
         new Thread(() -> {
-            try {
-                byte[] buffer = new byte[1024];
-                while (isReading) {
-                    int bytesRead = serialConnection.getInputStream().read(buffer);
+            byte[] buffer = new byte[1024];
+            while (isReading && serialPort != null) {
+                try {
+                    int bytesRead = serialPort.getInputStream().read(buffer);
                     if (bytesRead > 0) {
-                        JSObject data = new JSObject();
-                        data.put("data", new String(buffer, 0, bytesRead));
-                        notifyListeners("dataReceived", data);
+                        String data = new String(buffer, 0, bytesRead);
+                        JSObject dataEvent = new JSObject();
+                        dataEvent.put("data", data);
+                        notifyListeners("dataReceived", dataEvent);
                     }
+                } catch (IOException e) {
+                    if (isReading) {
+                        JSObject error = new JSObject();
+                        error.put("error", "Read error: " + e.getMessage());
+                        notifyListeners("readError", error);
+                    }
+                    isReading = false;
                 }
-            } catch (IOException e) {
-                JSObject error = new JSObject();
-                error.put("error", "Read error: " + e.getMessage());
-                notifyListeners("readError", error);
             }
         }).start();
     }
@@ -153,30 +146,38 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void stopReading(PluginCall call) {
         isReading = false;
-
-        try {
-            if (serialConnection != null && serialConnection.getInputStream() != null) {
-                serialConnection.getInputStream().close();
+        if (serialPort != null && serialPort.getInputStream() != null) {
+            try {
+                serialPort.getInputStream().close();
+            } catch (IOException e) {
+                Log.e(TAG, "Error closing input stream: " + e.getMessage());
             }
-        } catch (IOException e) {
-            call.reject("Error closing input stream: " + e.getMessage());
-            return;
         }
-
-        call.resolve();
         JSObject ret = new JSObject();
         ret.put("message", "Reading stopped");
         notifyListeners("readingStopped", ret);
+        call.resolve();
     }
 
     @PluginMethod
     public void close(PluginCall call) {
-        if (serialConnection != null) {
-            serialConnection.closeConnection();
+        if (serialPort != null) {
+            try {
+                serialPort.close();
+                serialPort = null;
+                Log.d(TAG, "Connection closed");
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to close connection: " + e.getMessage());
+                call.reject("Failed to close connection: " + e.getMessage());
+                return;
+            }
         }
-        call.resolve();
         JSObject ret = new JSObject();
         ret.put("message", "Connection closed");
         notifyListeners("connectionClosed", ret);
+        call.resolve();
+    }
+    protected SerialPort createSerialPort(String portPath, int baudRate) throws IOException {
+        return new SerialPort(new File(portPath), baudRate, 0);
     }
 }

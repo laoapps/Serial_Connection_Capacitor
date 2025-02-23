@@ -30,7 +30,7 @@ if (System.getenv("CAP_PLUGIN_PUBLISH") == "true") {
 }
 
 android {
-    namespace "com.laoapps.plugins.serialconnectioncapacitor"
+    namespace 'com.laoapps.plugins.serialconnectioncapacitor'
     compileSdkVersion project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 34
     defaultConfig {
         minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24
@@ -48,6 +48,11 @@ android {
     lintOptions {
         abortOnError false
     }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs'] // Include .so files
+        }
+}
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -63,9 +68,21 @@ repositories {
 }
 
 dependencies {
+
+   testImplementation 'junit:junit:4.13.2'
+
+    testImplementation 'org.mockito:mockito-inline:4.8.0'
+    testImplementation 'org.mockito:mockito-inline:4.8.0'
+    testImplementation 'org.mockito:mockito-core:3.12.4'
+    // PowerMock dependencies
+    testImplementation 'org.powermock:powermock-module-junit4:2.0.9'
+    testImplementation 'org.powermock:powermock-api-mockito2:2.0.9'
+    testImplementation 'org.powermock:powermock-classloading-xstream:2.0.9'
+    testImplementation 'org.powermock:powermock-module-junit4-rule:2.0.9'  // ADD THIS
+
     testImplementation 'org.robolectric:robolectric:4.9'
-    testImplementation 'org.mockito:mockito-core:3.11.2'
-    testImplementation 'junit:junit:4.13.2'
+
+
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
     if (System.getenv("CAP_PLUGIN_PUBLISH") == "true") {
