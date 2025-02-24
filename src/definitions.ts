@@ -3,6 +3,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 /**
  * Options for opening a serial port connection.
  */
+
 export interface SerialPortOptions {
   /**
    * Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`).
@@ -120,17 +121,6 @@ export interface SerialPortPlugin {
    * @param listenerFunc Callback function when event occurs
    * @returns Promise with the listener handle
    */
-  addEvent(
-    eventName: SerialPortEventTypes,
-    listenerFunc: (event: SerialPortEventData) => void
-  ): Promise<PluginListenerHandle>;
+  addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void): Promise<PluginListenerHandle>;
 
-  /**
-   * Remove listener for serial port events
-   * @param listener The event to stop listening for
-   */
-  removeEvent(
-    eventName: SerialPortEventTypes,
-    listenerFunc?: (event: SerialPortEventData) => void
-  ): Promise<void>;
 }

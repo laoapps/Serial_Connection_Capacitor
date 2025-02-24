@@ -81,8 +81,7 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`startReading()`](#startreading)
 * [`stopReading()`](#stopreading)
 * [`close()`](#close)
-* [`addEvent(...)`](#addevent)
-* [`removeEvent(...)`](#removeevent)
+* [`addListener(SerialPortEventTypes, ...)`](#addlistenerserialporteventtypes-)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -184,36 +183,20 @@ Closes the serial port connection.
 --------------------
 
 
-### addEvent(...)
+### addListener(SerialPortEventTypes, ...)
 
 ```typescript
-addEvent(eventName: SerialPortEventTypes, listenerFunc: (event: SerialPortEventData) => void) => Promise<PluginListenerHandle>
+addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void) => Promise<PluginListenerHandle>
 ```
 
 Add listener for serial port events
 
-| Param              | Type                                                                                    | Description                         |
-| ------------------ | --------------------------------------------------------------------------------------- | ----------------------------------- |
-| **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code>                   | The event to listen for             |
-| **`listenerFunc`** | <code>(event: <a href="#serialporteventdata">SerialPortEventData</a>) =&gt; void</code> | Callback function when event occurs |
+| Param              | Type                                                                  | Description                         |
+| ------------------ | --------------------------------------------------------------------- | ----------------------------------- |
+| **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code> | The event to listen for             |
+| **`listenerFunc`** | <code>(...args: any[]) =&gt; void</code>                              | Callback function when event occurs |
 
 **Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
-
---------------------
-
-
-### removeEvent(...)
-
-```typescript
-removeEvent(eventName: SerialPortEventTypes, listenerFunc?: ((event: SerialPortEventData) => void) | undefined) => Promise<void>
-```
-
-Remove listener for serial port events
-
-| Param              | Type                                                                                      |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code>                     |
-| **`listenerFunc`** | <code>((event: <a href="#serialporteventdata">SerialPortEventData</a>) =&gt; void)</code> |
 
 --------------------
 
@@ -254,17 +237,6 @@ Options for writing to a serial port.
 | Prop         | Type                                      |
 | ------------ | ----------------------------------------- |
 | **`remove`** | <code>() =&gt; Promise&lt;void&gt;</code> |
-
-
-#### SerialPortEventData
-
-Event data types for serial port events
-
-| Prop          | Type                |
-| ------------- | ------------------- |
-| **`message`** | <code>string</code> |
-| **`data`**    | <code>string</code> |
-| **`error`**   | <code>string</code> |
 
 
 ### Type Aliases
