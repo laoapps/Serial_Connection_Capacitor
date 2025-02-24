@@ -1,44 +1,57 @@
-import { WebPlugin, ListenerCallback } from '@capacitor/core';
-import type { 
+import { WebPlugin,PluginListenerHandle } from '@capacitor/core';
+
+import  { 
   SerialPortPlugin, 
   SerialPortOptions, 
   SerialPortWriteOptions, 
-  SerialPortListResult, 
-
+  SerialPortListResult,
+  SerialPortEventTypes
 } from './definitions';
 
 
 export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPortPlugin {
-  protected listeners: { [eventName: string]: ListenerCallback[] } = {};
 
   constructor() {
     super();
   }
 
   async listPorts(): Promise<SerialPortListResult> {
+    console.log('listPorts');
     throw new Error('listPorts is not supported on the web platform.');
   }
 
   async openUsbSerial(_options: SerialPortOptions): Promise<void> {
+    console.log('openUsbSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
   async openNativeSerial(_options: SerialPortOptions): Promise<void> {
+    console.log('openNativeSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
 
   async write(_options: SerialPortWriteOptions): Promise<void> {
+    console.log('write',_options);
     throw new Error('write is not supported on the web platform.');
   }
 
   async startReading(): Promise<void> {
+    console.log('startReading');
     throw new Error('startReading is not supported on the web platform.');
   }
 
   async stopReading(): Promise<void> {
+    console.log('stopReading');
     throw new Error('stopReading is not supported on the web platform.');
   }
 
   async close(): Promise<void> {
+    console.log('close');
     throw new Error('close is not supported on the web platform.');
   }
+  addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void): Promise<PluginListenerHandle> & PluginListenerHandle {
+    console.log("Adding listener for:", eventName,listenerFunc);
+    throw new Error('addListener is not supported on the web platform.');
+  }
+
+
 }

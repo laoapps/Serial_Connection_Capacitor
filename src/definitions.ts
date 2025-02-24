@@ -121,6 +121,6 @@ export interface SerialPortPlugin {
    * @param listenerFunc Callback function when event occurs
    * @returns Promise with the listener handle
    */
-  addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void): Promise<PluginListenerHandle>& PluginListenerHandle;
 
 }

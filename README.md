@@ -186,7 +186,7 @@ Closes the serial port connection.
 ### addListener(SerialPortEventTypes, ...)
 
 ```typescript
-addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void) => Promise<PluginListenerHandle>
+addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void) => Promise<PluginListenerHandle> & PluginListenerHandle
 ```
 
 Add listener for serial port events
@@ -196,7 +196,7 @@ Add listener for serial port events
 | **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code> | The event to listen for             |
 | **`listenerFunc`** | <code>(...args: any[]) =&gt; void</code>                              | Callback function when event occurs |
 
-**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt;</code>
+**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt; & <a href="#pluginlistenerhandle">PluginListenerHandle</a></code>
 
 --------------------
 

@@ -20,12 +20,12 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 
-@CapacitorPlugin(name = "SerialConnectionCapacitor")
+@CapacitorPlugin(name = "SerialCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
-    private static final String TAG = "SerialConnectionCapacitor";
+    private static final String TAG = "SerialConnCap";  // 14 characters
     private UsbSerialPort usbSerialPort;
-    private final HashMap<String, SerialPort> nativeSerialPorts = new HashMap<>();  // Synchronized access
-    private volatile boolean isReading = false;  // Thread-safe flag
+    private SerialPort nativeSerialPort;  // Single native serial port instance
+    private volatile boolean isReading = false;
     private UsbManager usbManager;
 
     @Override
@@ -85,7 +85,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void openNativeSerial(PluginCall call) {
         Log.d(TAG, "Native openNativeSerial invoked: " + call.getData().toString());
-
         String portName = call.getString("portName");
         int baudRate = call.getInt("baudRate", 9600);
 
@@ -94,9 +93,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
-        synchronized (nativeSerialPorts) {
-            if (nativeSerialPorts.containsKey(portName)) {
-                call.reject("Native serial connection already open for " + portName);
+        synchronized (this) {  // Synchronize on the plugin instance
+            if (nativeSerialPort != null) {
+                call.reject("A native serial connection is already open; close it first");
                 return;
             }
 
@@ -106,8 +105,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             }
 
             try {
-                SerialPort serialPort = new SerialPort(portName, baudRate);
-                nativeSerialPorts.put(portName, serialPort);
+                nativeSerialPort = new SerialPort(portName, baudRate);
                 Log.d(TAG, "Native serial opened successfully on " + portName);
                 JSObject ret = new JSObject();
                 ret.put("message", "Native serial connection opened for " + portName);
@@ -124,7 +122,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void openUsbSerial(PluginCall call) {
         Log.d(TAG, "Native openUsbSerial invoked: " + call.getData().toString());
-
         String portName = call.getString("portName");
         int baudRate = call.getInt("baudRate", 9600);
 
@@ -138,14 +135,14 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
-        synchronized (nativeSerialPorts) {
+        synchronized (this) {
             if (usbSerialPort != null) {
                 call.reject("USB serial connection already open");
                 return;
             }
 
-            if (!nativeSerialPorts.isEmpty()) {
-                call.reject("Native serial connection(s) are already open; close them first");
+            if (nativeSerialPort != null) {
+                call.reject("Native serial connection is already open; close it first");
                 return;
             }
 
@@ -199,7 +196,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void write(PluginCall call) {
         Log.d(TAG, "Native write invoked: " + call.getData().toString());
-
         String data = call.getString("data");
         String portName = call.getString("portName");
         if (data == null) {
@@ -210,22 +206,17 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         byte[] bytes = data.getBytes();
         JSObject ret = new JSObject();
 
-        synchronized (nativeSerialPorts) {
-            if (portName != null && nativeSerialPorts.containsKey(portName)) {
-                SerialPort serialPort = nativeSerialPorts.get(portName);
-                if (serialPort == null) {
-                    call.reject("Native serial port " + portName + " is closed");
-                    return;
-                }
+        synchronized (this) {
+            if (nativeSerialPort != null) {
                 try {
-                    serialPort.getOutputStream().write(bytes);
-                    serialPort.getOutputStream().flush();
-                    Log.d(TAG, "Data written to native serial " + portName + ": " + data);
-                    ret.put("message", "Data written successfully to native serial " + portName);
+                    nativeSerialPort.getOutputStream().write(bytes);
+                    nativeSerialPort.getOutputStream().flush();
+                    Log.d(TAG, "Data written to native serial: " + data);
+                    ret.put("message", "Data written successfully to native serial");
                     notifyListeners("nativeWriteSuccess", ret);
                     call.resolve();
                 } catch (IOException e) {
-                    call.reject("Failed to write to native serial " + portName + ": " + e.getMessage());
+                    call.reject("Failed to write to native serial: " + e.getMessage());
                 }
             } else if (usbSerialPort != null) {
                 try {
@@ -238,7 +229,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                     call.reject("Write to USB serial failed: " + e.getMessage());
                 }
             } else {
-                call.reject("No serial connection open for " + (portName != null ? portName : "any port"));
+                call.reject("No serial connection open");
             }
         }
     }
@@ -246,19 +237,19 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void startReading(PluginCall call) {
         Log.d(TAG, "Native startReading invoked: " + call.getData().toString());
-
         String portName = call.getString("portName");
-        if (usbSerialPort == null && nativeSerialPorts.isEmpty()) {
+
+        if (usbSerialPort == null && nativeSerialPort == null) {
             call.reject("No serial connection open");
             return;
         }
-    
+
         isReading = true;
         JSObject ret = new JSObject();
         ret.put("message", "Reading started");
         notifyListeners("readingStarted", ret);
         call.resolve();
-    
+
         if (usbSerialPort != null && (portName == null || portName.equals(usbSerialPort.getDriver().getDevice().getDeviceName()))) {
             new Thread(() -> {
                 byte[] buffer = new byte[1024];
@@ -284,24 +275,23 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 }
             }).start();
         }
-    
-        if (portName != null && nativeSerialPorts.containsKey(portName)) {
+
+        if (nativeSerialPort != null && (portName == null || portName.equals(nativeSerialPort.gettDdevicePath()))) {
             new Thread(() -> {
                 byte[] buffer = new byte[1024];
                 while (isReading) {
-                    synchronized (nativeSerialPorts) {
-                        SerialPort serialPort = nativeSerialPorts.get(portName);
-                        if (serialPort == null) {
-                            Log.w(TAG, "Native port " + portName + " closed, stopping read thread");
+                    synchronized (this) {
+                        if (nativeSerialPort == null) {
+                            Log.w(TAG, "Native port closed, stopping read thread");
                             break;
                         }
                         try {
-                            int available = serialPort.getInputStream().available();
+                            int available = nativeSerialPort.getInputStream().available();
                             if (available > 0) {
-                                int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                                int len = nativeSerialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
                                 if (len > 0) {
                                     String receivedData = new String(buffer, 0, len);
-                                    Log.d(TAG, "Received from native serial " + portName + ": " + receivedData);
+                                    Log.d(TAG, "Received from native serial: " + receivedData);
                                     JSObject dataEvent = new JSObject();
                                     dataEvent.put("data", receivedData);
                                     notifyListeners("dataReceived", dataEvent);
@@ -311,13 +301,13 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                             }
                         } catch (Exception e) {
                             if (isReading) {
-                                Log.e(TAG, "Native read error on " + portName + ": " + e.getMessage());
+                                Log.e(TAG, "Native read error: " + e.getMessage());
                             }
                         }
                     }
                 }
             }).start();
-        } else if (portName != null && !nativeSerialPorts.containsKey(portName)) {
+        } else if (portName != null && (nativeSerialPort == null || !portName.equals(nativeSerialPort.gettDdevicePath()))) {
             call.reject("No native serial connection open for " + portName);
         }
     }
@@ -325,7 +315,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void stopReading(PluginCall call) {
         Log.d(TAG, "Native stopReading invoked: " + call.getData().toString());
-
         isReading = false;
         JSObject ret = new JSObject();
         ret.put("message", "Reading stopped");
@@ -336,37 +325,20 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void close(PluginCall call) {
         Log.d(TAG, "Native close invoked: " + call.getData().toString());
-
         String portName = call.getString("portName");
         JSObject ret = new JSObject();
 
-        synchronized (nativeSerialPorts) {
-            if (portName != null && nativeSerialPorts.containsKey(portName)) {
+        synchronized (this) {
+            if (nativeSerialPort != null && (portName == null || portName.equals(nativeSerialPort.gettDdevicePath()))) {
                 try {
-                    SerialPort serialPort = nativeSerialPorts.remove(portName);
-                    if (serialPort != null) {
-                        serialPort.close();
-                        Log.d(TAG, "Native serial closed for " + portName);
-                        ret.put("message", "Native serial connection closed for " + portName);
-                    }
+                    nativeSerialPort.close();
+                    nativeSerialPort = null;
+                    Log.d(TAG, "Native serial closed");
+                    ret.put("message", "Native serial connection closed");
                 } catch (IOException e) {
-                    call.reject("Failed to close native serial " + portName + ": " + e.getMessage());
+                    call.reject("Failed to close native serial: " + e.getMessage());
                     return;
                 }
-            } else if (portName == null && !nativeSerialPorts.isEmpty()) {
-                for (String key : nativeSerialPorts.keySet()) {
-                    try {
-                        SerialPort serialPort = nativeSerialPorts.remove(key);
-                        if (serialPort != null) {
-                            serialPort.close();
-                            Log.d(TAG, "Native serial closed for " + key);
-                        }
-                    } catch (IOException e) {
-                        call.reject("Failed to close native serial " + key + ": " + e.getMessage());
-                        return;
-                    }
-                }
-                ret.put("message", "All native serial connections closed");
             }
 
             if (usbSerialPort != null && (portName == null || portName.equals(usbSerialPort.getDriver().getDevice().getDeviceName()))) {
