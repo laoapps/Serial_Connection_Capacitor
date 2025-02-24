@@ -24,7 +24,10 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
     throw new Error('listPorts is not supported on the web platform.');
   }
 
-  async open(_options: SerialPortOptions): Promise<void> {
+  async openUsbSerial(_options: SerialPortOptions): Promise<void> {
+    throw new Error('open is not supported on the web platform.');
+  }
+  async openNativeSerial(_options: SerialPortOptions): Promise<void> {
     throw new Error('open is not supported on the web platform.');
   }
 

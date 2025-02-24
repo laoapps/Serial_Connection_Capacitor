@@ -22,10 +22,15 @@ export class SerialConnectionCapacitorAndroid extends WebPlugin implements Seria
     return SerialConnectionCapacitor.listPorts();
   }
 
-  async open(options: SerialPortOptions): Promise<void> {
-    console.log("Opening serial port:", options);
-    return SerialConnectionCapacitor.open(options);
+  async openNativeSerial(options: SerialPortOptions): Promise<void> {
+    console.log("Opening Native serial port:", options);
+    return SerialConnectionCapacitor.openNativeSerial(options);
   }
+  async openUsbSerial(options: SerialPortOptions): Promise<void> {
+    console.log("Opening serial port:", options);
+    return SerialConnectionCapacitor.openUsbSerial(options);
+  }
+
 
   async write(options: SerialPortWriteOptions): Promise<void> {
     console.log("Writing to serial port:", options);

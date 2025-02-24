@@ -75,7 +75,8 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 <docgen-index>
 
 * [`listPorts()`](#listports)
-* [`open(...)`](#open)
+* [`openNativeSerial(...)`](#opennativeserial)
+* [`openUsbSerial(...)`](#openusbserial)
 * [`write(...)`](#write)
 * [`startReading()`](#startreading)
 * [`stopReading()`](#stopreading)
@@ -105,10 +106,25 @@ Lists available serial ports.
 --------------------
 
 
-### open(...)
+### openNativeSerial(...)
 
 ```typescript
-open(options: SerialPortOptions) => Promise<void>
+openNativeSerial(options: SerialPortOptions) => Promise<void>
+```
+
+Opens a serial port connection.
+
+| Param         | Type                                                            | Description                                           |
+| ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| **`options`** | <code><a href="#serialportoptions">SerialPortOptions</a></code> | Connection options including port path and baud rate. |
+
+--------------------
+
+
+### openUsbSerial(...)
+
+```typescript
+openUsbSerial(options: SerialPortOptions) => Promise<void>
 ```
 
 Opens a serial port connection.

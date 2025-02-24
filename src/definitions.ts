@@ -82,7 +82,12 @@ export interface SerialPortPlugin {
    * Opens a serial port connection.
    * @param options Connection options including port path and baud rate.
    */
-  open(options: SerialPortOptions): Promise<void>;
+  openNativeSerial(options: SerialPortOptions): Promise<void>;
+   /**
+   * Opens a serial port connection.
+   * @param options Connection options including port path and baud rate.
+   */
+   openUsbSerial(options: SerialPortOptions): Promise<void>;
 
   /**
    * Writes data to the serial port.

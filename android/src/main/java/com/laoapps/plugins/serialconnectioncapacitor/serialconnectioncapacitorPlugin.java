@@ -13,13 +13,16 @@ import com.hoho.android.usbserial.driver.UsbSerialDriver;
 import com.hoho.android.usbserial.driver.UsbSerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 
 @CapacitorPlugin(name = "SerialConnectionCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
     private static final String TAG = "SerialConnectionCapacitor";
-    private UsbSerialPort serialPort;  // Changed from UsbSerialDevice
+    private UsbSerialPort usbSerialPort;  // For mik3y/usb-serial-for-android
+    private SerialPort nativeSerialPort;  // For libserial_port.so
     private boolean isReading = false;
     private UsbManager usbManager;
 
@@ -31,20 +34,42 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @PluginMethod
     public void listPorts(PluginCall call) {
         JSObject ret = new JSObject();
-        JSObject ports = new JSObject();
+        JSObject usbPorts = new JSObject();
+        JSObject nativePorts = new JSObject();
 
-        HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-        int index = 0;
-        for (UsbDevice device : deviceList.values()) {
-            ports.put(device.getDeviceName(), index++);
+        // List USB serial ports
+        List<UsbSerialDriver> availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
+        int usbIndex = 0;
+        for (UsbSerialDriver driver : availableDrivers) {
+            UsbDevice device = driver.getDevice();
+            String portName = device.getDeviceName();
+            usbPorts.put(portName, usbIndex++);
         }
 
-        ret.put("ports", ports);
+        // List native serial ports
+        try {
+            File devDir = new File("/dev");
+            File[] serialFiles = devDir.listFiles((dir, name) -> name.startsWith("ttyS"));
+            if (serialFiles != null) {
+                int nativeIndex = 0;
+                for (File file : serialFiles) {
+                    String portName = file.getAbsolutePath();
+                    if (file.canRead() || file.canWrite()) {
+                        nativePorts.put(portName, nativeIndex++);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to list native serial ports: " + e.getMessage());
+        }
+
+        ret.put("usbPorts", usbPorts);
+        ret.put("nativePorts", nativePorts);
         call.resolve(ret);
     }
 
     @PluginMethod
-    public void open(PluginCall call) {
+    public void openNativeSerial(PluginCall call) {
         String portName = call.getString("portName");
         int baudRate = call.getInt("baudRate", 9600);
 
@@ -53,8 +78,47 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
-        if (serialPort != null) {
-            call.reject("Connection already open");
+        if (nativeSerialPort != null) {
+            call.reject("Native serial connection already open");
+            return;
+        }
+
+        if (usbSerialPort != null) {
+            call.reject("USB serial connection is already open; close it first");
+            return;
+        }
+
+        try {
+            nativeSerialPort = new SerialPort(portName, baudRate);
+            Log.d(TAG, "Native serial opened successfully on " + portName);
+            JSObject ret = new JSObject();
+            ret.put("message", "Native serial connection opened");
+            notifyListeners("nativeSerialOpened", ret);
+            call.resolve(ret);
+        } catch (SecurityException e) {
+            call.reject("Permission denied; ensure device is rooted and su is available: " + e.getMessage());
+        } catch (IOException e) {
+            call.reject("Failed to open native serial connection: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void openUsbSerial(PluginCall call) {
+        String portName = call.getString("portName");
+        int baudRate = call.getInt("baudRate", 9600);
+
+        if (portName == null) {
+            call.reject("Port name is required");
+            return;
+        }
+
+        if (usbSerialPort != null) {
+            call.reject("USB serial connection already open");
+            return;
+        }
+
+        if (nativeSerialPort != null) {
+            call.reject("Native serial connection is already open; close it first");
             return;
         }
 
@@ -72,7 +136,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
-        // Probe for drivers
         List<UsbSerialDriver> availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
         UsbSerialDriver driver = null;
         for (UsbSerialDriver d : availableDrivers) {
@@ -87,53 +150,65 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
 
-        serialPort = driver.getPorts().get(0);  // Use first port (adjust for multi-port devices if needed)
+        usbSerialPort = driver.getPorts().get(0);
         try {
-            serialPort.open(usbManager.openDevice(device));
-            serialPort.setParameters(baudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
-            serialPort.setDTR(true);  // Optional, mimics some flow control
-            serialPort.setRTS(true);
+            usbSerialPort.open(usbManager.openDevice(device));
+            usbSerialPort.setParameters(baudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+            usbSerialPort.setDTR(true);
+            usbSerialPort.setRTS(true);
 
-            Log.d(TAG, "Connection opened successfully on " + portName);
+            Log.d(TAG, "USB serial opened successfully on " + portName);
             JSObject ret = new JSObject();
-            ret.put("message", "Connection opened successfully");
-            notifyListeners("connectionOpened", ret);
-            call.resolve();
+            ret.put("message", "USB serial connection opened");
+            notifyListeners("usbSerialOpened", ret);
+            call.resolve(ret);
         } catch (Exception e) {
-            call.reject("Failed to open connection: " + e.getMessage());
+            usbSerialPort = null;
+            call.reject("Failed to open USB serial connection: " + e.getMessage());
         }
     }
 
     @PluginMethod
     public void write(PluginCall call) {
-        if (serialPort == null) {
-            call.reject("Port not open");
-            return;
-        }
-
         String data = call.getString("data");
         if (data == null) {
             call.reject("Invalid data");
             return;
         }
 
-        try {
-            byte[] bytes = data.getBytes();
-            serialPort.write(bytes, 5000);  // 5-second timeout
-            Log.d(TAG, "Data written to serial port: " + data);
-            JSObject ret = new JSObject();
-            ret.put("message", "Data written successfully");
-            notifyListeners("writeSuccess", ret);
-            call.resolve();
-        } catch (Exception e) {
-            call.reject("Write failed: " + e.getMessage());
+        byte[] bytes = data.getBytes();
+        JSObject ret = new JSObject();
+
+        if (nativeSerialPort != null) {
+            try {
+                nativeSerialPort.getOutputStream().write(bytes);
+                nativeSerialPort.getOutputStream().flush();
+                Log.d(TAG, "Data written to native serial: " + data);
+                ret.put("message", "Data written successfully to native serial");
+                notifyListeners("nativeWriteSuccess", ret);
+                call.resolve(ret);
+            } catch (IOException e) {
+                call.reject("Failed to write to native serial: " + e.getMessage());
+            }
+        } else if (usbSerialPort != null) {
+            try {
+                usbSerialPort.write(bytes, 5000);
+                Log.d(TAG, "Data written to USB serial: " + data);
+                ret.put("message", "Data written successfully to USB serial");
+                notifyListeners("usbWriteSuccess", ret);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Write to USB serial failed: " + e.getMessage());
+            }
+        } else {
+            call.reject("No serial connection open");
         }
     }
 
     @PluginMethod
     public void startReading(PluginCall call) {
-        if (serialPort == null) {
-            call.reject("Port not open");
+        if (usbSerialPort == null && nativeSerialPort == null) {
+            call.reject("No serial connection open");
             return;
         }
 
@@ -141,26 +216,54 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("message", "Reading started");
         notifyListeners("readingStarted", ret);
-        call.resolve();
+        call.resolve(ret);
 
-        new Thread(() -> {
-            byte[] buffer = new byte[1024];
-            while (isReading) {
-                try {
-                    int len = serialPort.read(buffer, 1000);  // 1-second timeout
-                    if (len > 0) {
-                        String receivedData = new String(buffer, 0, len);
-                        JSObject dataEvent = new JSObject();
-                        dataEvent.put("data", receivedData);
-                        notifyListeners("dataReceived", dataEvent);
-                    }
-                } catch (Exception e) {
-                    if (isReading) {
-                        Log.e(TAG, "Read error: " + e.getMessage());
+        if (usbSerialPort != null) {
+            new Thread(() -> {
+                byte[] buffer = new byte[1024];
+                while (isReading) {
+                    try {
+                        int len = usbSerialPort.read(buffer, 1000);
+                        if (len > 0) {
+                            String receivedData = new String(buffer, 0, len);
+                            JSObject dataEvent = new JSObject();
+                            dataEvent.put("data", receivedData);
+                            notifyListeners("dataReceived", dataEvent);
+                        }
+                    } catch (Exception e) {
+                        if (isReading) {
+                            Log.e(TAG, "USB read error: " + e.getMessage());
+                        }
                     }
                 }
-            }
-        }).start();
+            }).start();
+        }
+
+        if (nativeSerialPort != null) {
+            new Thread(() -> {
+                byte[] buffer = new byte[1024];
+                while (isReading) {
+                    try {
+                        int available = nativeSerialPort.getInputStream().available();
+                        if (available > 0) {
+                            int len = nativeSerialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                            if (len > 0) {
+                                String receivedData = new String(buffer, 0, len);
+                                JSObject dataEvent = new JSObject();
+                                dataEvent.put("data", receivedData);
+                                notifyListeners("dataReceived", dataEvent);
+                            }
+                        } else {
+                            Thread.sleep(10);  // Avoid busy-waiting
+                        }
+                    } catch (Exception e) {
+                        if (isReading) {
+                            Log.e(TAG, "Native read error: " + e.getMessage());
+                        }
+                    }
+                }
+            }).start();
+        }
     }
 
     @PluginMethod
@@ -169,23 +272,38 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("message", "Reading stopped");
         notifyListeners("readingStopped", ret);
-        call.resolve();
+        call.resolve(ret);
     }
 
     @PluginMethod
     public void close(PluginCall call) {
-        if (serialPort != null) {
+        JSObject ret = new JSObject();
+        if (usbSerialPort != null) {
             try {
-                serialPort.close();
-                serialPort = null;
-                Log.d(TAG, "Connection closed");
+                usbSerialPort.close();
+                usbSerialPort = null;
+                Log.d(TAG, "USB serial closed");
+                ret.put("message", "USB serial connection closed");
             } catch (Exception e) {
-                Log.e(TAG, "Close error: " + e.getMessage());
+                call.reject("Failed to close USB serial: " + e.getMessage());
+                return;
             }
         }
-        JSObject ret = new JSObject();
-        ret.put("message", "Connection closed");
+        if (nativeSerialPort != null) {
+            try {
+                nativeSerialPort.close();
+                nativeSerialPort = null;
+                Log.d(TAG, "Native serial closed");
+                ret.put("message", "Native serial connection closed");
+            } catch (IOException e) {
+                call.reject("Failed to close native serial: " + e.getMessage());
+                return;
+            }
+        }
+        if (ret.length() == 0) {
+            ret.put("message", "No connection to close");
+        }
         notifyListeners("connectionClosed", ret);
-        call.resolve();
+        call.resolve(ret);
     }
 }
