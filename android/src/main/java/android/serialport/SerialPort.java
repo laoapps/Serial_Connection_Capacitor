@@ -14,7 +14,7 @@
  * limitations under the License. 
  */
 
-package com.laoapps.plugins.serialconnectioncapacitor;
+package android.serialport;
 import android.util.Log;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -124,7 +124,7 @@ public class SerialPort {
     // JNI
     private native static FileDescriptor open(String path, int baudrate, int flags);
 
-    public native void close() throws IOException; // Add throws clause
+   public native void close() throws IOException; // Add throws clause
 
     static {
         System.loadLibrary("serial_port");
