@@ -22,7 +22,7 @@ export class HomePage {
   async openPort() {
     try {
       await serialconnectioncapacitor.open({
-        portPath: '/dev/tty.usbserial',
+        portName: '/dev/tty.usbserial',
         baudRate: 9600,
       });
       console.log('Port opened successfully');

@@ -15,7 +15,7 @@ import type { SerialPortPlugin } from './definitions';
  *   console.log('Available ports:', ports);
  * 
  *   await serialconnectioncapacitor.open({
- *     portPath: '/dev/tty.usbserial',
+ *      portName: '/dev/tty.usbserial',
  *     baudRate: 9600
  *   });
  * };

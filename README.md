@@ -33,7 +33,7 @@ The plugin emits the following events:
 |------------|-------------|----------------|
 | `connectionOpened` | When connection is established | `{ message: string }` |
 | `connectionError` | When connection fails | `{ error: string }` |
-| `writeSuccess` | When data is written successfully | `{ message: string }` |
+| `nativeWriteSuccess` | When data is written successfully | `{ message: string }` |
 | `writeError` | When write operation fails | `{ error: string }` |
 | `dataReceived` | When data is received | `{ data: string }` |
 | `readError` | When read operation fails | `{ error: string }` |
@@ -236,7 +236,7 @@ Options for opening a serial port connection.
 
 | Prop           | Type                | Description                                               |
 | -------------- | ------------------- | --------------------------------------------------------- |
-| **`portPath`** | <code>string</code> | Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`). |
+| **`portName`** | <code>string</code> | Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`). |
 | **`baudRate`** | <code>number</code> | Baud rate for the serial port connection.                 |
 
 
@@ -272,7 +272,7 @@ Event data types for serial port events
 
 #### SerialPortEventTypes
 
-<code>'portsListed' | 'connectionOpened' | 'connectionClosed' | 'writeSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError' | 'deviceError'</code>
+<code>'portsListed' | 'connectionOpened' | 'connectionClosed' | 'nativeWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError' | 'deviceError'</code>
 
 </docgen-api>
 
@@ -291,9 +291,9 @@ class SerialPortManager {
         throw new Error('No serial ports available');
       }
 
-      const portPath = Object.keys(ports)[0];
+      const portName = Object.keys(ports)[0];
       await serialConnectionCapacitor.open({
-        portPath,
+        portName,
         baudRate: 115200
       });
 
@@ -320,7 +320,7 @@ class SerialPortManager {
       console.log('Received:', event.data);
     });
 
-    serialConnectionCapacitor.addEvent('writeSuccess', (event) => {
+    serialConnectionCapacitor.addEvent('nativeWriteSuccess', (event) => {
       console.log('Write successful:', event.message);
     });
 

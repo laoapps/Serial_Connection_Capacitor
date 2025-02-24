@@ -7,7 +7,7 @@ export interface SerialPortOptions {
   /**
    * Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`).
    */
-  portPath: string;
+  portName: string;
 
   /**
    * Baud rate for the serial port connection.
@@ -57,8 +57,11 @@ export interface SerialPortEventData {
 export type SerialPortEventTypes = 
   | 'portsListed'
   | 'connectionOpened'
+  | 'nativeSerialOpened'
+  | 'usbSerialOpened'
   | 'connectionClosed'
-  | 'writeSuccess'
+  | 'nativeWriteSuccess'
+  | 'usbWriteSuccess'
   | 'dataReceived'
   | 'readingStarted'
   | 'readingStopped'

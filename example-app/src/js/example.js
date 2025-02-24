@@ -15,11 +15,11 @@ window.testConnection = async () => {
         }
 
         // Get the first available port
-        const portPath = Object.keys(ports)[0];
+        const portName = Object.keys(ports)[0];
 
         // Open connection with required parameters
         await serialConnectionCapacitor.open({
-            portPath: portPath,
+            portName: portName,
             baudRate: 9600
         });
 

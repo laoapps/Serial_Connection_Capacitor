@@ -33,10 +33,10 @@ public class SerialConnectionCapacitorPlugin2 extends Plugin {
 
         String[] possiblePorts = {"/dev/ttyS0", "/dev/ttyS1", "/dev/ttyUSB0", "/dev/ttyUSB1"};
         int index = 0;
-        for (String portPath : possiblePorts) {
-            File portFile = new File(portPath);
+        for (String portName : possiblePorts) {
+            File portFile = new File(portName);
             if (portFile.exists() && portFile.canRead()) {
-                ports.put(portPath, index++);
+                ports.put(portName, index++);
             }
         }
 
@@ -46,10 +46,10 @@ public class SerialConnectionCapacitorPlugin2 extends Plugin {
 
     @PluginMethod
     public void open(PluginCall call) {
-        String portPath = call.getString("portPath");
+        String portName = call.getString("portName");
         int baudRate = call.getInt("baudRate", 9600);
 
-        if (portPath == null) {
+        if (portName == null) {
             call.reject("Port path is required");
             return;
         }
@@ -60,8 +60,8 @@ public class SerialConnectionCapacitorPlugin2 extends Plugin {
         }
 
         try {
-            serialPort = createSerialPort(portPath, baudRate);
-            Log.d(TAG, "Connection opened successfully on " + portPath);
+            serialPort = createSerialPort(portName, baudRate);
+            Log.d(TAG, "Connection opened successfully on " + portName);
             JSObject ret = new JSObject();
             ret.put("message", "Connection opened successfully");
             notifyListeners("connectionOpened", ret);
@@ -95,7 +95,7 @@ public class SerialConnectionCapacitorPlugin2 extends Plugin {
             Log.d(TAG, "Data written to serial port: " + data);
             JSObject ret = new JSObject();
             ret.put("message", "Data written successfully");
-            notifyListeners("writeSuccess", ret);
+            notifyListeners("nativeWriteSuccess", ret);
             call.resolve();
         } catch (IOException e) {
             Log.e(TAG, "Write error: " + e.getMessage());
@@ -176,7 +176,7 @@ public class SerialConnectionCapacitorPlugin2 extends Plugin {
         notifyListeners("connectionClosed", ret);
         call.resolve();
     }
-    protected SerialPort createSerialPort(String portPath, int baudRate) throws IOException {
-        return new SerialPort(new File(portPath), baudRate, 0);
+    protected SerialPort createSerialPort(String portName, int baudRate) throws IOException {
+        return new SerialPort(new File(portName), baudRate, 0);
     }
 }
