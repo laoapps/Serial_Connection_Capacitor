@@ -68,8 +68,7 @@ export type SerialPortEventTypes =
   | 'listError'
   | 'connectionError'
   | 'writeError'
-  | 'readError'
-  | 'deviceError';
+  | 'readError';
 
 /**
  * Plugin interface for serial port communication.

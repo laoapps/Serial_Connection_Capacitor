@@ -272,7 +272,7 @@ Event data types for serial port events
 
 #### SerialPortEventTypes
 
-<code>'portsListed' | 'connectionOpened' | 'nativeSerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'nativeWriteSuccess' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError' | 'deviceError'</code>
+<code>'portsListed' | 'connectionOpened' | 'nativeSerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'nativeWriteSuccess' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError'</code>
 
 </docgen-api>
 

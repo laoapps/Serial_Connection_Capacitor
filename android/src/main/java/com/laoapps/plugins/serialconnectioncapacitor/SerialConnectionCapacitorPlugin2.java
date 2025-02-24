@@ -8,7 +8,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.IOException;
-
+import android.serialport.SerialPort;
 @CapacitorPlugin(name = "SerialConnectionCapacitor2")
 public class SerialConnectionCapacitorPlugin2 extends Plugin {
     private static final String TAG = "SerialConnectionCapacitor";
