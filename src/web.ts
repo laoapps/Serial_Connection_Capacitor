@@ -20,31 +20,35 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
     throw new Error('listPorts is not supported on the web platform.');
   }
 
-  async openUsbSerial(_options: SerialPortOptions): Promise<void> {
+  async openUsbSerial(_options: SerialPortOptions): Promise<any> {
     console.log('openUsbSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
-  async openNativeSerial(_options: SerialPortOptions): Promise<void> {
+  async openNativeSerial(_options: SerialPortOptions): Promise<any> {
     console.log('openNativeSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
+  async openMcNativeSerial(_options: SerialPortOptions): Promise<any> {
+    console.log('openMcNativeSerial',_options);
+    throw new Error('open is not supported on the web platform.');
+  }
 
-  async write(_options: SerialPortWriteOptions): Promise<void> {
+  async write(_options: SerialPortWriteOptions): Promise<any> {
     console.log('write',_options);
     throw new Error('write is not supported on the web platform.');
   }
 
-  async startReading(): Promise<void> {
+  async startReading(): Promise<any> {
     console.log('startReading');
     throw new Error('startReading is not supported on the web platform.');
   }
 
-  async stopReading(): Promise<void> {
+  async stopReading(): Promise<any> {
     console.log('stopReading');
     throw new Error('stopReading is not supported on the web platform.');
   }
 
-  async close(): Promise<void> {
+  async close(): Promise<any> {
     console.log('close');
     throw new Error('close is not supported on the web platform.');
   }

@@ -77,6 +77,7 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`listPorts()`](#listports)
 * [`openNativeSerial(...)`](#opennativeserial)
 * [`openUsbSerial(...)`](#openusbserial)
+* [`openMcNativeSerial(...)`](#openmcnativeserial)
 * [`write(...)`](#write)
 * [`startReading()`](#startreading)
 * [`stopReading()`](#stopreading)
@@ -108,7 +109,7 @@ Lists available serial ports.
 ### openNativeSerial(...)
 
 ```typescript
-openNativeSerial(options: SerialPortOptions) => Promise<void>
+openNativeSerial(options: SerialPortOptions) => Promise<any>
 ```
 
 Opens a serial port connection.
@@ -116,6 +117,8 @@ Opens a serial port connection.
 | Param         | Type                                                            | Description                                           |
 | ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
 | **`options`** | <code><a href="#serialportoptions">SerialPortOptions</a></code> | Connection options including port path and baud rate. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
 
 --------------------
 
@@ -123,14 +126,33 @@ Opens a serial port connection.
 ### openUsbSerial(...)
 
 ```typescript
-openUsbSerial(options: SerialPortOptions) => Promise<void>
+openUsbSerial(options: SerialPortOptions) => Promise<any>
 ```
 
-Opens a serial port connection.
+Opens a USB serial port connection.
 
 | Param         | Type                                                            | Description                                           |
 | ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
 | **`options`** | <code><a href="#serialportoptions">SerialPortOptions</a></code> | Connection options including port path and baud rate. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### openMcNativeSerial(...)
+
+```typescript
+openMcNativeSerial(options: SerialPortOptions) => Promise<any>
+```
+
+Opens a USB serial port connection.
+
+| Param         | Type                                                            | Description                                           |
+| ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| **`options`** | <code><a href="#serialportoptions">SerialPortOptions</a></code> | Connection options including port path and baud rate. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
 
 --------------------
 
@@ -138,7 +160,7 @@ Opens a serial port connection.
 ### write(...)
 
 ```typescript
-write(options: SerialPortWriteOptions) => Promise<void>
+write(options: SerialPortWriteOptions) => Promise<any>
 ```
 
 Writes data to the serial port.
@@ -147,16 +169,20 @@ Writes data to the serial port.
 | ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
 | **`options`** | <code><a href="#serialportwriteoptions">SerialPortWriteOptions</a></code> | Write options containing the command to send. |
 
+**Returns:** <code>Promise&lt;any&gt;</code>
+
 --------------------
 
 
 ### startReading()
 
 ```typescript
-startReading() => Promise<void>
+startReading() => Promise<any>
 ```
 
 Start reading data from the serial port.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
 
 --------------------
 
@@ -164,10 +190,12 @@ Start reading data from the serial port.
 ### stopReading()
 
 ```typescript
-stopReading() => Promise<void>
+stopReading() => Promise<any>
 ```
 
 Stop reading data from the serial port.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
 
 --------------------
 
@@ -175,10 +203,12 @@ Stop reading data from the serial port.
 ### close()
 
 ```typescript
-close() => Promise<void>
+close() => Promise<any>
 ```
 
 Closes the serial port connection.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
 
 --------------------
 
@@ -244,7 +274,7 @@ Options for writing to a serial port.
 
 #### SerialPortEventTypes
 
-<code>'portsListed' | 'connectionOpened' | 'nativeSerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'nativeWriteSuccess' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError'</code>
+<code>'portsListed' | 'connectionOpened' | 'nativeSerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'nativeWriteSuccess' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError' | 'readingData' | 'mcNativeSerialOpened' | 'mcNativeWriteSuccess'</code>
 
 </docgen-api>
 

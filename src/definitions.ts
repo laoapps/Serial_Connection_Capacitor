@@ -69,7 +69,10 @@ export type SerialPortEventTypes =
   | 'listError'
   | 'connectionError'
   | 'writeError'
-  | 'readError';
+  | 'readError'
+  | 'readingData'
+  | 'mcNativeSerialOpened'
+  | 'mcNativeWriteSuccess';
 
 /**
  * Plugin interface for serial port communication.
@@ -85,35 +88,42 @@ export interface SerialPortPlugin {
    * Opens a serial port connection.
    * @param options Connection options including port path and baud rate.
    */
-  openNativeSerial(options: SerialPortOptions): Promise<void>;
+  openNativeSerial(options: SerialPortOptions): Promise<any>;
    /**
-   * Opens a serial port connection.
+   * Opens a USB serial port connection.
    * @param options Connection options including port path and baud rate.
    */
-   openUsbSerial(options: SerialPortOptions): Promise<void>;
+   openUsbSerial(options: SerialPortOptions): Promise<any>;
+
+   /**
+   * Opens a USB serial port connection.
+   * @param options Connection options including port path and baud rate.
+   */
+   openMcNativeSerial(options: SerialPortOptions): Promise<any>;
 
   /**
    * Writes data to the serial port.
    * @param options Write options containing the command to send.
    */
-  write(options: SerialPortWriteOptions): Promise<void>;
+  
+  write(options: SerialPortWriteOptions): Promise<any>;
 
   /**
    * Start reading data from the serial port.
    * @returns Promise that resolves with the read data.
    */
-  startReading(): Promise<void>;
+  startReading(): Promise<any>;
 
   /**
    * Stop reading data from the serial port.
    * @returns Promise that resolves with the read data.
    */
-  stopReading(): Promise<void>;
+  stopReading(): Promise<any>;
 
   /**
    * Closes the serial port connection.
    */
-  close(): Promise<void>;
+  close(): Promise<any>;
 
   /**
    * Add listener for serial port events

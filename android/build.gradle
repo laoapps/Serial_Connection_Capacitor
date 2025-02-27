@@ -63,23 +63,27 @@ repositories {
     google()
     mavenCentral()
     maven { url 'https://jitpack.io' }
+    flatDir {
+        dirs "$rootDir/libs" // Reference the root-level libs directory
+    }
 
 }
 
 dependencies {
+    
     implementation 'com.github.mik3y:usb-serial-for-android:3.8.1'
-
+    implementation(name: 'mcSerialPort', ext: 'aar')// Reference the AAR file//    api(name:'mcSerialPort', ext:'aar')
     testImplementation 'org.robolectric:robolectric:4.9'
     testImplementation 'org.mockito:mockito-core:3.11.2'
     testImplementation 'junit:junit:4.13.2'
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+
 
     if (System.getenv("CAP_PLUGIN_PUBLISH") == "true") {
         implementation "com.capacitorjs:core:$capacitorVersion"
     } else {
         implementation project(':capacitor-android')
     }
-
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
