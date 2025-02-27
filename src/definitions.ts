@@ -57,22 +57,15 @@ export interface SerialPortEventData {
 
 export type SerialPortEventTypes = 
   | 'portsListed'
-  | 'connectionOpened'
-  | 'nativeSerialOpened'
+  | 'SerialOpened'
   | 'usbSerialOpened'
   | 'connectionClosed'
-  | 'nativeWriteSuccess'
   | 'usbWriteSuccess'
   | 'dataReceived'
   | 'readingStarted'
   | 'readingStopped'
-  | 'listError'
-  | 'connectionError'
-  | 'writeError'
-  | 'readError'
-  | 'readingData'
-  | 'mcNativeSerialOpened'
-  | 'mcNativeWriteSuccess';
+  | 'SerialOpened'
+  | 'serialWriteSuccess';
 
 /**
  * Plugin interface for serial port communication.
@@ -88,18 +81,14 @@ export interface SerialPortPlugin {
    * Opens a serial port connection.
    * @param options Connection options including port path and baud rate.
    */
-  openNativeSerial(options: SerialPortOptions): Promise<any>;
+  openSerial(options: SerialPortOptions): Promise<any>;
    /**
    * Opens a USB serial port connection.
    * @param options Connection options including port path and baud rate.
    */
    openUsbSerial(options: SerialPortOptions): Promise<any>;
 
-   /**
-   * Opens a USB serial port connection.
-   * @param options Connection options including port path and baud rate.
-   */
-   openMcNativeSerial(options: SerialPortOptions): Promise<any>;
+  
 
   /**
    * Writes data to the serial port.

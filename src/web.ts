@@ -24,14 +24,11 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
     console.log('openUsbSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
-  async openNativeSerial(_options: SerialPortOptions): Promise<any> {
+  async openSerial(_options: SerialPortOptions): Promise<any> {
     console.log('openNativeSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
-  async openMcNativeSerial(_options: SerialPortOptions): Promise<any> {
-    console.log('openMcNativeSerial',_options);
-    throw new Error('open is not supported on the web platform.');
-  }
+
 
   async write(_options: SerialPortWriteOptions): Promise<any> {
     console.log('write',_options);

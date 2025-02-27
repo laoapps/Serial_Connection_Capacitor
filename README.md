@@ -8,16 +8,12 @@ A Capacitor plugin for serial port communication in web and mobile applications.
 npm install serialconnectioncapacitor
 npx cap sync
 ```
-
-### iOS Setup
-Add the following to your `Info.plist`:
-```xml
-<key>UISupportedExternalAccessoryProtocols</key>
-<array>
-    <string>com.serial.protocol</string>
-</array>
 ```
-
+for Android Only , 24 and above, serial port need a rooted android 
+capacitor 5.7.8
+if you need another version please find the versions 
+it uses native libs libserial_port.so , I have built for many architures , thanks grok that guided me along!
+```
 ### Android Setup
 Add the following permission to your `AndroidManifest.xml`:
 ```xml
@@ -75,9 +71,8 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 <docgen-index>
 
 * [`listPorts()`](#listports)
-* [`openNativeSerial(...)`](#opennativeserial)
+* [`openSerial(...)`](#openserial)
 * [`openUsbSerial(...)`](#openusbserial)
-* [`openMcNativeSerial(...)`](#openmcnativeserial)
 * [`write(...)`](#write)
 * [`startReading()`](#startreading)
 * [`stopReading()`](#stopreading)
@@ -106,10 +101,10 @@ Lists available serial ports.
 --------------------
 
 
-### openNativeSerial(...)
+### openSerial(...)
 
 ```typescript
-openNativeSerial(options: SerialPortOptions) => Promise<any>
+openSerial(options: SerialPortOptions) => Promise<any>
 ```
 
 Opens a serial port connection.
@@ -127,23 +122,6 @@ Opens a serial port connection.
 
 ```typescript
 openUsbSerial(options: SerialPortOptions) => Promise<any>
-```
-
-Opens a USB serial port connection.
-
-| Param         | Type                                                            | Description                                           |
-| ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
-| **`options`** | <code><a href="#serialportoptions">SerialPortOptions</a></code> | Connection options including port path and baud rate. |
-
-**Returns:** <code>Promise&lt;any&gt;</code>
-
---------------------
-
-
-### openMcNativeSerial(...)
-
-```typescript
-openMcNativeSerial(options: SerialPortOptions) => Promise<any>
 ```
 
 Opens a USB serial port connection.
@@ -274,7 +252,7 @@ Options for writing to a serial port.
 
 #### SerialPortEventTypes
 
-<code>'portsListed' | 'connectionOpened' | 'nativeSerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'nativeWriteSuccess' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'listError' | 'connectionError' | 'writeError' | 'readError' | 'readingData' | 'mcNativeSerialOpened' | 'mcNativeWriteSuccess'</code>
+<code>'portsListed' | 'SerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'SerialOpened' | 'serialWriteSuccess'</code>
 
 </docgen-api>
 
