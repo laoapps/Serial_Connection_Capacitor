@@ -28,14 +28,24 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
     console.log('openNativeSerial',_options);
     throw new Error('open is not supported on the web platform.');
   }
+  
+
 
 
   async write(_options: SerialPortWriteOptions): Promise<any> {
     console.log('write',_options);
     throw new Error('write is not supported on the web platform.');
   }
+  async writeVMC(_options: SerialPortWriteOptions): Promise<any> {
+    console.log('writeVMC',_options);
+    throw new Error('writeVMC is not supported on the web platform.');
+  }
 
   async startReading(): Promise<any> {
+    console.log('startReading');
+    throw new Error('startReading is not supported on the web platform.');
+  }
+  async startReadingVMC(): Promise<any> {
     console.log('startReading');
     throw new Error('startReading is not supported on the web platform.');
   }

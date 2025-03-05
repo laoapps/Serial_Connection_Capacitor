@@ -10,7 +10,7 @@ npx cap sync
 ```
 ```
 for Android Only , 24 and above, serial port need a rooted android 
-capacitor 5.7.8
+capacitor 5.0.1 special version for VMC using polling and timing method
 if you need another version please find the versions 
 it uses native libs libserial_port.so , I have built for many architures , thanks grok that guided me along!
 ```
@@ -74,7 +74,9 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`openSerial(...)`](#openserial)
 * [`openUsbSerial(...)`](#openusbserial)
 * [`write(...)`](#write)
+* [`writeVMC(...)`](#writevmc)
 * [`startReading()`](#startreading)
+* [`startReadingVMC()`](#startreadingvmc)
 * [`stopReading()`](#stopreading)
 * [`close()`](#close)
 * [`addListener(SerialPortEventTypes, ...)`](#addlistenerserialporteventtypes-)
@@ -152,10 +154,40 @@ Writes data to the serial port.
 --------------------
 
 
+### writeVMC(...)
+
+```typescript
+writeVMC(options: SerialPortWriteOptions) => Promise<any>
+```
+
+Writes data to the serial port.
+
+| Param         | Type                                                                      | Description                                   |
+| ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
+| **`options`** | <code><a href="#serialportwriteoptions">SerialPortWriteOptions</a></code> | Write options containing the command to send. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
 ### startReading()
 
 ```typescript
 startReading() => Promise<any>
+```
+
+Start reading data from the serial port.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startReadingVMC()
+
+```typescript
+startReadingVMC() => Promise<any>
 ```
 
 Start reading data from the serial port.
@@ -252,7 +284,7 @@ Options for writing to a serial port.
 
 #### SerialPortEventTypes
 
-<code>'portsListed' | 'SerialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'SerialOpened' | 'serialWriteSuccess'</code>
+<code>'portsListed' | 'serialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'serialWriteSuccess' | 'commandAcknowledged' | 'commandQueued'</code>
 
 </docgen-api>
 

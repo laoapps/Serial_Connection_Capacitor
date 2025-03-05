@@ -57,15 +57,16 @@ export interface SerialPortEventData {
 
 export type SerialPortEventTypes = 
   | 'portsListed'
-  | 'SerialOpened'
+  | 'serialOpened'
   | 'usbSerialOpened'
   | 'connectionClosed'
   | 'usbWriteSuccess'
   | 'dataReceived'
   | 'readingStarted'
   | 'readingStopped'
-  | 'SerialOpened'
-  | 'serialWriteSuccess';
+  | 'serialWriteSuccess'
+  | 'commandAcknowledged'
+  | 'commandQueued';
 
 /**
  * Plugin interface for serial port communication.
@@ -96,12 +97,23 @@ export interface SerialPortPlugin {
    */
   
   write(options: SerialPortWriteOptions): Promise<any>;
+    /**
+   * Writes data to the serial port.
+   * @param options Write options containing the command to send.
+   */
+  
+    writeVMC(options: SerialPortWriteOptions): Promise<any>;
 
   /**
    * Start reading data from the serial port.
    * @returns Promise that resolves with the read data.
    */
   startReading(): Promise<any>;
+   /**
+   * Start reading data from the serial port.
+   * @returns Promise that resolves with the read data.
+   */
+   startReadingVMC(): Promise<any>;
 
   /**
    * Stop reading data from the serial port.

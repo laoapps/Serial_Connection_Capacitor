@@ -23,22 +23,30 @@ import com.hoho.android.usbserial.driver.ProbeTable;
 
 import android.serialport.SerialPort; // Updated version
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Queue;
+import java.util.Set;
+import java.util.LinkedList;
+import java.util.HashSet;
 
 @CapacitorPlugin(name = "SerialCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
     private static final String TAG = "SerialConnCap";
     private UsbSerialPort usbSerialPort;
-    private SerialPort serialPort; // Unified SerialPort
+    private SerialPort serialPort;
     private volatile boolean isReading = false;
     private UsbManager usbManager;
     private BroadcastReceiver usbPermissionReceiver;
+    private final Queue<byte[]> commandQueue = new LinkedList<>();
+    private final Set<String> sentResponses = new HashSet<>();
+    private byte packNoCounter = 0;
 
     static {
-        System.loadLibrary("serial_port"); // Single library for both
+        System.loadLibrary("serial_port");
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -76,7 +84,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             usbPermissionReceiver = null;
         }
     }
-
     @PluginMethod
     public void listPorts(PluginCall call) {
         Log.d(TAG, "listPorts invoked: " + call.getData().toString());
@@ -288,95 +295,356 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             }
         }
     }
-
-    private byte[] hexStringToByteArray(String s) {
-        int len = s.length();
-        byte[] data = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4) + Character.digit(s.charAt(i + 1), 16));
-        }
-        return data;
-    }
-
     @PluginMethod
-    public void startReading(PluginCall call) {
-        Log.d(TAG, "startReading invoked: " + call.getData().toString());
-        String portName = call.getString("portName");
-
-        if (usbSerialPort == null && serialPort == null) {
-            call.reject("No serial connection open");
+    public void writeVMC(PluginCall call) {
+        Log.d(TAG, "writeVMC invoked: " + call.getData().toString());
+        String data = call.getString("data");
+        if (data == null) {
+            call.reject("Data required");
             return;
         }
 
-        isReading = true;
-        JSObject ret = new JSObject();
-        ret.put("message", "Reading started");
-        notifyListeners("readingStarted", ret);
-        call.resolve(ret);
+        try {
+            JSObject jsonData = new JSObject(data);
+            String command = jsonData.getString("command");
+            JSObject params = jsonData.getJSObject("params", new JSObject());
+            if (command == null) {
+                call.reject("Command name required in data");
+                return;
+            }
 
-        if (usbSerialPort != null && (portName == null || portName.equals(usbSerialPort.getDriver().getDevice().getDeviceName()))) {
-            new Thread(() -> {
-                byte[] buffer = new byte[1024];
-                while (isReading) {
-                    try {
-                        if (usbSerialPort != null) {
-                            int len = usbSerialPort.read(buffer, 1000);
-                            if (len > 0) {
-                                String receivedData = bytesToHex(buffer, len);
-                                Log.d(TAG, "Received from USB serial: " + receivedData);
-                                JSObject dataEvent = new JSObject();
-                                dataEvent.put("data", receivedData);
-                                notifyListeners("dataReceived", dataEvent);
-                            }
+            byte[] packet = buildPacket(command, params);
+          Log.d(TAG, "Packet for 06: " + bytesToHex(packet, packet.length));
+            synchronized (commandQueue) {
+                commandQueue.add(packet);
+                Log.d(TAG, "Queued command for VMC: " + bytesToHex(packet, packet.length));
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("message", "Command queued for VMC");
+            ret.put("data", bytesToHex(packet, packet.length));
+            notifyListeners("commandQueued", ret);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to parse data or build packet: " + e.getMessage());
+        }
+    }
+
+
+
+
+  private byte[] buildPacket(String command, JSObject params) {
+    byte[] stx = {(byte) 0xFA, (byte) 0xFB};
+    byte cmdByte = (byte) Integer.parseInt(command.length() > 2 ? command.substring(2) : command, 16);
+    byte packNo = getNextPackNo();
+
+    byte[] text;
+    Log.d(TAG, "Input command " + command);
+    switch (command) {
+      case "01":
+        text = new byte[]{(byte) clampToByte(params.getInteger("slot", 1))};
+        break;
+      case "31":
+        synchronized (commandQueue) {
+          commandQueue.clear();
+          packNoCounter = 0; // Reset to align with Node.js sync
+          Log.d(TAG, "Queue cleared and PackNO reset on sync command");
+        }
+        text = new byte[0];
+        break;
+      case "06":
+        int slot = clampToByte(params.getInteger("slot", 1));
+        byte[] buff = new byte[5]; // 5 bytes for text: packNo + data + checksum placeholder
+        buff[0] = packNo;         // Series (e.g., 0x01)
+        buff[1] = (byte) 0x01;    // Enable drop sensor
+        buff[2] = (byte) 0x00;    // Disable elevator
+        buff[3] = (byte) (slot / 256); // Slot high byte: 0x00
+        buff[4] = (byte) (slot % 256); // Slot low byte: 0x01
+        text = buff;
+        break;
+      case "11":
+        text = new byte[]{(byte) clampToByte(params.getInteger("slot", 1))};
+        break;
+      case "16":
+        text = new byte[]{(byte) clampToByte(params.getInteger("ms", 10))};
+        break;
+      case "25":
+        text = new byte[]{0, 0, 0, (byte) clampToByte(params.getInteger("amount", 0))};
+        break;
+      case "27":
+        int mode = clampToByte(params.getInteger("mode", 1));
+        String amountHex = params.getString("amount", "00000000");
+        byte[] amount = hexStringToByteArray(amountHex);
+        text = new byte[]{(byte) mode, amount[0], amount[1], amount[2], amount[3]};
+        break;
+      case "28":
+        text = new byte[]{0, (byte) 0xFF, (byte) 0xFF};
+        break;
+      case "51":
+        text = new byte[0];
+        break;
+      case "61":
+        text = new byte[]{1};
+        break;
+      case "7001":
+        text = new byte[]{0x01, 0};
+        break;
+      case "7017":
+        text = new byte[]{0x17, 0};
+        break;
+      case "ENABLE": // Map to 7018
+      case "7018":
+        if (params.getBoolean("enable", false)) {
+          text = new byte[]{0x18, 1, (byte) clampToByte(params.getInteger("value", 200))};
+        } else {
+          text = new byte[]{0x18, 0};
+        }
+        break;
+      case "7019":
+        text = new byte[]{0x19, 0};
+        break;
+      case "7020":
+        text = new byte[]{0x20, 0};
+        break;
+      case "7023":
+        text = new byte[]{0x23, 0};
+        break;
+      case "7028":
+        if (params.has("enable")) {
+          text = new byte[]{0x28, 1, params.getBoolean("enable", false) ? (byte) 0xFF : 0};
+        } else {
+          text = new byte[]{0x28, 0};
+        }
+        break;
+      case "7037":
+        text = new byte[]{
+          0x37, 1, 0,
+          (byte) clampToByte(params.getInteger("lowTemp", 5)),
+          (byte) clampToByte(params.getInteger("highTemp", 10)),
+          5, 0, 0, 1, 10, 0
+        };
+        break;
+      default:
+        text = new byte[0];
+        Log.w(TAG, "Unsupported command: " + command + ", params: " + params.toString());
+    }
+
+    byte length = (byte) (text.length); // Length is just the text length now, including packNo
+    byte[] data = new byte[stx.length + 2 + text.length + 1]; // STX + cmd + length + text + XOR
+    System.arraycopy(stx, 0, data, 0, stx.length);
+    data[2] = cmdByte;
+    data[3] = length;
+    System.arraycopy(text, 0, data, 4, text.length); // Text includes packNo
+//    data[4]=(byte)0x00;
+    data[data.length - 1] = calculateXOR(data, data.length - 1); // Overwrite last byte with checksum
+
+    Log.d(TAG, "Built packet: " + bytesToHex(data, data.length));
+    return data;
+  }
+//   yours
+//  fa fb 06 05 0d 01 00 00 0e
+//   nodejs code
+//  command =['fa', 'fb', '06', '05',getNextNo(),'01','00','00','01']
+//   out put
+//  fa fb 06 05 01 01 00 00 01 03
+//  fa fb 06 05 00 01 00 00 01 02
+  private byte getNextPackNo() {
+    synchronized (this) {
+      packNoCounter = (byte) ((packNoCounter + 1) % 256); // Match Node.js 0-255 cycle
+      return packNoCounter == 0 ? (byte) 1 : packNoCounter; // Start at 01, not 00
+    }
+  }
+
+    private int clampToByte(Integer value) {
+        if (value == null) return 0;
+        return Math.min(Math.max(value, 0), 255); // Clamp to 0-255
+    }
+
+  @PluginMethod
+  public void startReadingVMC(PluginCall call) {
+    Log.d(TAG, "startReadingVMC invoked: " + call.getData().toString());
+    if (serialPort == null) {
+      call.reject("No serial connection open");
+      return;
+    }
+
+    isReading = true;
+    JSObject ret = new JSObject();
+    ret.put("message", "VMC reading started");
+    notifyListeners("readingStarted", ret);
+    call.resolve(ret);
+
+    new Thread(() -> {
+      byte[] buffer = new byte[1024];
+      ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
+
+      while (isReading) {
+        synchronized (this) {
+          if (serialPort == null) {
+            Log.w(TAG, "Serial port closed, stopping read thread");
+            break;
+          }
+          try {
+            int available = serialPort.getInputStream().available();
+            if (available > 0) {
+              int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+              if (len > 0) {
+                packetBuffer.write(buffer, 0, len);
+                byte[] accumulated = packetBuffer.toByteArray();
+                int start = 0;
+
+                while (start <= accumulated.length - 5) {
+                  if ((accumulated[start] & 0xFF) == 0xFA && (accumulated[start + 1] & 0xFF) == 0xFB) {
+                    int packetLength = (accumulated[start + 3] & 0xFF) + 5;
+                    if (start + packetLength > accumulated.length) break;
+
+                    byte[] packet = new byte[packetLength];
+                    System.arraycopy(accumulated, start, packet, 0, packetLength);
+                    String packetHex = bytesToHex(packet, packetLength);
+
+                    byte calculatedXor = calculateXOR(packet, packetLength - 1);
+                    if (calculatedXor != packet[packetLength - 1]) {
+                      Log.w(TAG, "Invalid checksum: " + packetHex);
+                      start++;
+                      continue;
+                    }
+
+                    if (packetHex.equals("fafb410040")) { // POLL
+                      synchronized (commandQueue) {
+                        if (!commandQueue.isEmpty()) {
+                          byte[] response = commandQueue.poll(); // Peek, don’t poll yet
+                          Log.d(TAG, "POLL received, sending command: " + bytesToHex(response, response.length));
+                          serialPort.getOutputStream().write(response);
+                          serialPort.getOutputStream().flush();
+                          notifyListeners("serialWriteSuccess", new JSObject().put("data", bytesToHex(response, response.length)));
                         } else {
-                            break;
+                          byte[] ack = hexStringToByteArray("fafb420043");
+                          Log.d(TAG, "POLL received, sending ACK: fafb420043");
+                          serialPort.getOutputStream().write(ack);
+                          serialPort.getOutputStream().flush();
+                          notifyListeners("serialWriteSuccess", new JSObject().put("data", "fafb420043"));
                         }
-                    } catch (Exception e) {
-                        if (isReading) Log.e(TAG, "USB read error: " + e.getMessage());
+                      }
+                    } else if (packetHex.equals("fafb420043") || packetHex.equals("fafb420143")) { // ACK
+                      synchronized (commandQueue) {
+                        if (!commandQueue.isEmpty()) {
+                          byte[] ackedCmd = commandQueue.peek(); // Dequeue on ACK
+                          Log.d(TAG, "ACK received, dequeued command: " + bytesToHex(ackedCmd, ackedCmd.length));
+                          JSObject ackEvent = new JSObject();
+                          ackEvent.put("data", bytesToHex(ackedCmd, ackedCmd.length));
+                          notifyListeners("commandAcknowledged", ackEvent);
+                        }
+                      }
+                    } else { // Response
+                      if (!sentResponses.contains(packetHex)) {
+                        Log.d(TAG, "Sending unique response to client: " + packetHex);
+                        JSObject dataEvent = new JSObject();
+                        dataEvent.put("data", packetHex);
+                        notifyListeners("dataReceived", dataEvent);
+                        sentResponses.add(packetHex);
+                      }
+                      byte[] ack = hexStringToByteArray("fafb420043");
+                      Log.d(TAG, "Sending ACK for response: fafb420043");
+                      serialPort.getOutputStream().write(ack);
+                      serialPort.getOutputStream().flush();
                     }
-                }
-            }).start();
-        }
 
-        if (serialPort != null && (portName == null || portName.equals(serialPort.gettDdevicePath()))) {
-            new Thread(() -> {
-                byte[] buffer = new byte[1024];
-                while (isReading) {
-                    synchronized (this) {
-                        if (serialPort == null) {
-                            Log.w(TAG, "Serial port closed, stopping read thread");
-                            break;
-                        }
-                        try {
-                            int available = serialPort.getInputStream().available();
-                            if (available > 0) {
-                                int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
-                                if (len > 0) {
-                                    String receivedData = bytesToHex(buffer, len);
-                                    Log.d(TAG, "Received from serial: " + receivedData);
-                                    JSObject dataEvent = new JSObject();
-                                    dataEvent.put("data", receivedData);
-                                    notifyListeners("dataReceived", dataEvent);
-                                }
-                            } else {
-                                Thread.sleep(10);
-                            }
-                        } catch (Exception e) {
-                            if (isReading) Log.e(TAG, "Serial read error: " + e.getMessage());
-                        }
-                    }
+                    start += packetLength;
+                  } else {
+                    start++;
+                  }
                 }
-            }).start();
+
+                int remaining = accumulated.length - start;
+                if (remaining > 0) {
+                  byte[] remainder = new byte[remaining];
+                  System.arraycopy(accumulated, start, remainder, 0, remaining);
+                  packetBuffer.reset();
+                  packetBuffer.write(remainder);
+                } else {
+                  packetBuffer.reset();
+                }
+              }
+            }
+            Thread.sleep(10); // Reduce to 10ms for faster polling
+          } catch (Exception e) {
+            if (isReading) Log.e(TAG, "VMC read error: " + e.getMessage());
+          }
         }
+      }
+    }).start();
+  }
+  @PluginMethod
+  public void startReading(PluginCall call) {
+    Log.d(TAG, "startReading invoked: " + call.getData().toString());
+    String portName = call.getString("portName");
+
+    if (usbSerialPort == null && serialPort == null) {
+      call.reject("No serial connection open");
+      return;
     }
 
-    private String bytesToHex(byte[] bytes, int length) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < length; i++) {
-            sb.append(String.format("%02x", bytes[i]));
+    isReading = true;
+    JSObject ret = new JSObject();
+    ret.put("message", "Reading started");
+    notifyListeners("readingStarted", ret);
+    call.resolve(ret);
+
+    if (usbSerialPort != null && (portName == null || portName.equals(usbSerialPort.getDriver().getDevice().getDeviceName()))) {
+      new Thread(() -> {
+        byte[] buffer = new byte[1024];
+        while (isReading) {
+          try {
+            if (usbSerialPort != null) {
+              int len = usbSerialPort.read(buffer, 1000);
+              if (len > 0) {
+                String receivedData = bytesToHex(buffer, len);
+                Log.d(TAG, "Received from USB serial: " + receivedData);
+                JSObject dataEvent = new JSObject();
+                dataEvent.put("data", receivedData);
+                notifyListeners("dataReceived", dataEvent);
+              }
+            } else {
+              break;
+            }
+          } catch (Exception e) {
+            if (isReading) Log.e(TAG, "USB read error: " + e.getMessage());
+          }
         }
-        return sb.toString();
+      }).start();
     }
+
+    if (serialPort != null && (portName == null || portName.equals(serialPort.gettDdevicePath()))) {
+      new Thread(() -> {
+        byte[] buffer = new byte[1024];
+        while (isReading) {
+          synchronized (this) {
+            if (serialPort == null) {
+              Log.w(TAG, "Serial port closed, stopping read thread");
+              break;
+            }
+            try {
+              int available = serialPort.getInputStream().available();
+              if (available > 0) {
+                int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                if (len > 0) {
+                  String receivedData = bytesToHex(buffer, len);
+                  Log.d(TAG, "Received from serial: " + receivedData);
+                  JSObject dataEvent = new JSObject();
+                  dataEvent.put("data", receivedData);
+                  notifyListeners("dataReceived", dataEvent);
+                }
+              } else {
+                Thread.sleep(10);
+              }
+            } catch (Exception e) {
+              if (isReading) Log.e(TAG, "Serial read error: " + e.getMessage());
+            }
+          }
+        }
+      }).start();
+    }
+  }
 
     @PluginMethod
     public void stopReading(PluginCall call) {
@@ -426,4 +694,29 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             call.resolve(ret);
         }
     }
+
+
+    private byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4) + Character.digit(s.charAt(i + 1), 16));
+        }
+        return data;
+    }
+    private String bytesToHex(byte[] bytes, int length) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < length; i++) {
+            sb.append(String.format("%02x", bytes[i]));
+        }
+        return sb.toString();
+    }
+
+  private byte calculateXOR(byte[] data, int length) {
+    byte xor = 0;
+    for (int i = 0; i < length; i++) {
+      xor ^= data[i];
+    }
+    return xor;
+  }
 }
