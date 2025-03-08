@@ -314,7 +314,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             }
 
             byte[] packet = buildPacket(command, params);
-          Log.d(TAG, "Packet for 06: " + bytesToHex(packet, packet.length));
+            Log.d(TAG, "Packet for 06: " + bytesToHex(packet, packet.length));
             synchronized (commandQueue) {
                 commandQueue.add(packet);
                 Log.d(TAG, "Queued command for VMC: " + bytesToHex(packet, packet.length));
@@ -333,318 +333,497 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
 
 
-  private byte[] buildPacket(String command, JSObject params) {
-    byte[] stx = {(byte) 0xFA, (byte) 0xFB};
-    byte cmdByte = (byte) Integer.parseInt(command.length() > 2 ? command.substring(2) : command, 16);
-    byte packNo = getNextPackNo();
+    private byte[] buildPacket(String command, JSObject params) {
+        byte[] stx = {(byte) 0xFA, (byte) 0xFB};
+        byte cmdByte = (byte) Integer.parseInt(command.length() > 2 ? command.substring(2) : command, 16);
+        byte packNo = getNextPackNo();
 
-    byte[] text;
-    Log.d(TAG, "Input command " + command);
-    switch (command) {
-      case "01":
-        text = new byte[]{(byte) clampToByte(params.getInteger("slot", 1))};
-        break;
-      case "31":
-        synchronized (commandQueue) {
-          commandQueue.clear();
-          packNoCounter = 0; // Reset to align with Node.js sync
-          Log.d(TAG, "Queue cleared and PackNO reset on sync command");
+        byte[] text;
+        Log.d(TAG, "Input command " + command);
+        switch (command) {
+            case "01": // Slot test
+                text = new byte[]{(byte) clampToByte(params.getInteger("slot", 1))};
+                break;
+            case "31": // Sync
+                cmdByte = (byte) 0x31;
+                synchronized (commandQueue) {
+                    commandQueue.clear();
+                    packNoCounter = 0; // Reset PackNO
+                    Log.d(TAG, "Queue cleared and PackNO reset on sync command");
+                }
+                text = new byte[]{packNo};
+                break;
+            case "06": // Dispense
+                cmdByte = (byte) 0x06;
+                int slot = clampToByte(params.getInteger("slot", 1));
+                int elevator = clampToByte(params.getInteger("elevator", 0));
+                int dropSensor = clampToByte(params.getInteger("dropSensor", 1));
+                text = new byte[5];
+                text[0] = packNo;
+                text[1] = (byte) dropSensor;
+                text[2] = (byte) elevator;
+                text[3] = (byte) 0x00;
+                text[4] = (byte) slot;
+                break;
+            case "11": // Slot status
+                cmdByte = (byte) 0x11;
+                text = new byte[]{packNo, (byte) clampToByte(params.getInteger("slot", 1))};
+                break;
+            case "16": // Poll interval
+                cmdByte = (byte) 0x16;
+                text = new byte[]{packNo, (byte) clampToByte(params.getInteger("ms", 10))};
+                break;
+            case "25": // Coin report
+                cmdByte = (byte) 0x25;
+                text = new byte[]{packNo, 0, 0, 0, (byte) clampToByte(params.getInteger("amount", 0))};
+                break;
+            case "51": // Machine status
+                cmdByte = (byte) 0x51;
+                text = new byte[]{packNo};
+                break;
+            case "61": // Read counters
+                cmdByte = (byte) 0x61;
+                text = new byte[]{packNo};
+                break;
+            case "7001": // Coin system setting (read)
+                cmdByte = (byte) 0x70;
+                text = new byte[]{packNo, 0x01, 0x00, 0x00}; // Read mode
+                break;
+            case "7017": // Unionpay/POS
+                cmdByte = (byte) 0x70;
+                boolean read1 = Boolean.TRUE.equals(params.getBoolean("read", true));
+                text = read1 ? new byte[]{packNo, 0x17, 0x00} :
+                        new byte[]{packNo, 0x17, 0x01, (byte) clampToByte(params.getInteger("enable", 0))};
+                break;
+            case "7018": // Bill value accepted
+                cmdByte = (byte) 0x70;
+                boolean read = Boolean.TRUE.equals(params.getBoolean("read", true));
+                text = read ? new byte[]{packNo, 0x18, 0x00} :
+                        new byte[]{packNo, 0x18, (byte) 0x01,
+                                (byte)clampToByte(params.getInteger("value", 200))};
+                break;
+            case "7019": // Bill accepting mode
+                cmdByte = (byte) 0x70;
+                boolean read2 = Boolean.TRUE.equals(params.getBoolean("read", true));
+                text = read2 ? new byte[]{packNo, 0x19, 0x00} :
+                        new byte[]{packNo, 0x19, 0x01, (byte) clampToByte(params.getInteger("value", 1))};
+                break;
+            case "7020": // Bill low-change
+                cmdByte = (byte) 0x70;
+                boolean read3 = Boolean.TRUE.equals(params.getBoolean("read", true));
+                text = read3 ? new byte[]{packNo, 0x20, 0x00} :
+                        new byte[]{packNo, 0x20, 0x01, (byte) clampToByte(params.getInteger("enable", 100))};
+                break;
+            case "7023": // Credit mode
+                cmdByte = (byte) 0x70;
+                byte mode3 = (byte)clampToByte(params.getInteger("mode", 0));
+                text = mode3==0x00 ? new byte[]{packNo, 0x23, mode3} :
+                        new byte[]{packNo, 0x23, 0x01, mode3};
+                break;
+            case "7028": // Temp mode
+                cmdByte = (byte) 0x70;
+                text = new byte[]{packNo, 0x28, 0x01, 0x00, 0x02,
+                        (byte) clampToByte(params.getInteger("lowTemp", 5))};
+                break;
+            case "7016": // Light control
+                cmdByte = (byte) 0x70;
+                text = new byte[]{packNo, 0x16, 0x01,
+                        (byte) clampToByte(params.getInteger("start", 15)),
+                        (byte) clampToByte(params.getInteger("end", 10))};
+                break;
+            case "7037": // Temp controller
+                cmdByte = (byte) 0x70;
+                text = new byte[]{packNo, 0x37, 0x01, 0x00,
+                        (byte) clampToByte(params.getInteger("lowTemp", 5)),
+                        (byte) clampToByte(params.getInteger("highTemp", 10)),
+                        0x05, 0x00, 0x00, 0x01, 0x0A, 0x00};
+                break;
+            case "27": // Report money
+                cmdByte = (byte) 0x27;
+                int mode = clampToByte(params.getInteger("mode", 8));// 8 swallowing money , 1 bill
+                String amountHex = params.getString("amount", "00000000");
+                byte[] amount = hexStringToByteArray(amountHex);
+                text = new byte[]{packNo, (byte) mode, amount[0], amount[1], amount[2], amount[3]};
+                break;
+            case "28": // Enable bill acceptor
+                cmdByte = (byte) 0x28;
+                int mode4 = clampToByte(params.getInteger("mode", 0));
+                byte value4 = (byte) Integer.parseInt(params.getString("value", "ffff"),16);
+                text = new byte[]{packNo, (byte)mode4, value4};
+                break;
+            default:
+                text = new byte[0];
+                Log.w(TAG, "Unsupported command: " + command + ", params: " + params.toString());
         }
-        text = new byte[0];
-        break;
-      case "06":
-        int slot = clampToByte(params.getInteger("slot", 1));
-        byte[] buff = new byte[5]; // 5 bytes for text: packNo + data + checksum placeholder
-        buff[0] = packNo;         // Series (e.g., 0x01)
-        buff[1] = (byte) 0x01;    // Enable drop sensor
-        buff[2] = (byte) 0x00;    // Disable elevator
-        buff[3] = (byte) (slot / 256); // Slot high byte: 0x00
-        buff[4] = (byte) (slot % 256); // Slot low byte: 0x01
-        text = buff;
-        break;
-      case "11":
-        text = new byte[]{(byte) clampToByte(params.getInteger("slot", 1))};
-        break;
-      case "16":
-        text = new byte[]{(byte) clampToByte(params.getInteger("ms", 10))};
-        break;
-      case "25":
-        text = new byte[]{0, 0, 0, (byte) clampToByte(params.getInteger("amount", 0))};
-        break;
-      case "27":
-        int mode = clampToByte(params.getInteger("mode", 1));
-        String amountHex = params.getString("amount", "00000000");
-        byte[] amount = hexStringToByteArray(amountHex);
-        text = new byte[]{(byte) mode, amount[0], amount[1], amount[2], amount[3]};
-        break;
-      case "28":
-        text = new byte[]{0, (byte) 0xFF, (byte) 0xFF};
-        break;
-      case "51":
-        text = new byte[0];
-        break;
-      case "61":
-        text = new byte[]{1};
-        break;
-      case "7001":
-        text = new byte[]{0x01, 0};
-        break;
-      case "7017":
-        text = new byte[]{0x17, 0};
-        break;
-      case "ENABLE": // Map to 7018
-      case "7018":
-        if (params.getBoolean("enable", false)) {
-          text = new byte[]{0x18, 1, (byte) clampToByte(params.getInteger("value", 200))};
-        } else {
-          text = new byte[]{0x18, 0};
-        }
-        break;
-      case "7019":
-        text = new byte[]{0x19, 0};
-        break;
-      case "7020":
-        text = new byte[]{0x20, 0};
-        break;
-      case "7023":
-        text = new byte[]{0x23, 0};
-        break;
-      case "7028":
-        if (params.has("enable")) {
-          text = new byte[]{0x28, 1, params.getBoolean("enable", false) ? (byte) 0xFF : 0};
-        } else {
-          text = new byte[]{0x28, 0};
-        }
-        break;
-      case "7037":
-        text = new byte[]{
-          0x37, 1, 0,
-          (byte) clampToByte(params.getInteger("lowTemp", 5)),
-          (byte) clampToByte(params.getInteger("highTemp", 10)),
-          5, 0, 0, 1, 10, 0
-        };
-        break;
-      default:
-        text = new byte[0];
-        Log.w(TAG, "Unsupported command: " + command + ", params: " + params.toString());
+//    switch (command) {
+//      case "01":
+//        text = new byte[]{(byte) clampToByte(params.getInteger("slot", 1))};
+//        break;
+//      case "31":
+//        cmdByte = (byte) 0x31;
+//
+//        synchronized (commandQueue) {
+//          commandQueue.clear();
+//          packNoCounter = 0; // Reset to align with Node.js sync
+//          Log.d(TAG, "Queue cleared and PackNO reset on sync command");
+//        }
+//        text = new byte[1];
+//        text[0] = packNo;
+//        break;
+//      case "06":
+//        cmdByte = (byte) 0x06;
+//        int slot = clampToByte(params.getInteger("slot", 1));
+//        int elevator = clampToByte(params.getInteger("elevator", 0));
+//        int dropSensor = clampToByte(params.getInteger("dropSensor", 1));
+//        text = new byte[5];
+//        text[0] = packNo;
+//        text[1] = (byte) dropSensor;
+//        text[2] = (byte) elevator;
+//        text[3] = (byte) 0x00;
+//        text[4] = (byte) slot;
+//        break;
+//      case "11":
+//        cmdByte = (byte) 0x11;
+//        text = new byte[]{packNo, (byte) clampToByte(params.getInteger("slot", 1))};
+//        break;
+//      case "16":
+//        cmdByte = (byte) 0x16;
+//        text = new byte[]{packNo, (byte) clampToByte(params.getInteger("ms", 10))};
+//        break;
+//      case "25":
+//        cmdByte = (byte) 0x25;
+//        text = new byte[]{packNo, 0, 0, 0, (byte) clampToByte(params.getInteger("amount", 0))};
+//        break;
+//
+//
+//      case "51":
+//        cmdByte = (byte) 0x51;
+//        text = new byte[]{packNo};
+//        break;
+//      case "61":
+//        cmdByte = (byte) 0x61;
+//        text = new byte[]{packNo};
+//        break;
+//      case "7001":
+//        cmdByte = (byte) 0x70;
+//        text = new byte[]{packNo, 0x01, 0, 0};
+//        break;
+//      case "7017":
+//        cmdByte = (byte) 0x70;
+//        int enable1 = clampToByte(params.getInteger("enable", 0));
+//        boolean read1 = Boolean.TRUE.equals(params.getBoolean("read", true));
+//        if (!read1) {
+//          text = new byte[]{packNo, 0x17, 1, (byte) enable1};
+//        } else
+//          text = new byte[]{packNo, 0x17, 0};
+//        break;
+//      case "7018":
+//        cmdByte = (byte) 0x70;
+//        boolean enable = Boolean.TRUE.equals(params.getBoolean("enable", false));
+//        boolean read = Boolean.TRUE.equals(params.getBoolean("read", true));
+//        if (!read) {
+//          if (enable)
+//            text = new byte[]{packNo, 0x18, 1, (byte) clampToByte(params.getInteger("value", 200))};
+//          else
+//            text = new byte[]{packNo, 0x18, 1, 0};
+//
+//        } else {
+//          text = new byte[]{packNo, 0x18, 0};
+//        }
+//        break;
+//      case "7019":
+//        cmdByte = (byte) 0x70;
+//        int enable2 = clampToByte(params.getInteger("enable", 3));
+//        boolean read2 = Boolean.TRUE.equals(params.getBoolean("read", true));
+//        if (!read2) {
+//          text = new byte[]{packNo, 0x19, 1, (byte) enable2};
+//        } else {
+//          text = new byte[]{packNo, 0x19, 0};
+//        }
+//        break;
+//      case "7020":
+//        cmdByte = (byte) 0x70;
+//        int enable3 = clampToByte(params.getInteger("enable", 100));
+//        boolean read3 = Boolean.TRUE.equals(params.getBoolean("read", true));
+//        if (!read3) {
+//          text = new byte[]{packNo, 0x20, 1, (byte) enable3};
+//        } else {
+//          text = new byte[]{packNo, 0x20, 0};
+//        }
+//        break;
+//      case "27": // Report received money
+//        int mode = clampToByte(params.getInteger("mode", 1));
+//        String amountHex = params.getString("amount", "00000000");
+//        byte[] amount = hexStringToByteArray(amountHex);
+//        text = new byte[6];
+//        text[0] = packNo;
+//        text[1] = (byte) mode;
+//        text[2] = amount[0];
+//        text[3] = amount[1];
+//        text[4] = amount[2];
+//        text[5] = amount[3];
+//        break;
+//      case "28": // Enable bill acceptor
+//        text = new byte[4];
+//        text[0] = packNo;
+//        text[1] = (byte) 0x00; // Mode: notes
+//        text[2] = Boolean.TRUE.equals(params.getBoolean("enable", true)) ? (byte) 0xFF : (byte) 0x00;
+//        text[3] = Boolean.TRUE.equals(params.getBoolean("enable", true)) ? (byte) 0xFF : (byte) 0x00;
+//        break;
+//      case "7023": // Set credit mode
+//        cmdByte = (byte) 0x70;
+//        int mode3 = clampToByte(params.getInteger("mode", 0));//
+//        boolean read4 = Boolean.TRUE.equals(params.getBoolean("read", true));
+//
+//        if (!read4) {
+//          text = new byte[4];
+//          text[0] = packNo;
+//          text[1] = (byte) 0x23;
+//          text[2] = (byte) 0x01;
+//          text[3] = (byte) mode3;
+//
+//        } else {
+//          text = new byte[3];
+//          text[0] = packNo;
+//          text[1] = (byte) 0x23;
+//          text[2] = (byte) 0x00;
+//        }
+//        break;
+//
+//      case "7028": //set temperature control
+//        cmdByte = (byte) 0x70;
+//        int lowTemp = clampToByte(params.getInteger("lowTemp", 5));
+//        text = new byte[6];
+//        text[0] = packNo;
+//        text[1] = (byte) 0x28;
+//        text[2] = (byte) 0x01;
+//        text[3] = (byte) 0x00;
+//        text[4] = (byte) 0x02;
+//        text[5] = (byte) lowTemp;
+//        break;
+//      case "7016": //set temperature control
+//        cmdByte = (byte) 0x70;
+//        int start = clampToByte(params.getInteger("start", 15));
+//        int end = clampToByte(params.getInteger("end", 10));
+//        int mode1 = clampToByte(params.getInteger("mode", 1));
+//        text = new byte[5];
+//        text[0] = packNo;
+//        text[1] = (byte) 0x16;
+//        text[2] = (byte) mode1;// 00 read coin system type, 01 set coin system type
+//        text[3] = (byte) start;
+//        text[4] = (byte) end;
+//        break;
+//      case "7037":
+//        cmdByte = (byte) 0x70;
+//        text = new byte[]{
+//          packNo, 0x37, 1, 0,
+//          (byte) clampToByte(params.getInteger("lowTemp", 5)),
+//          (byte) clampToByte(params.getInteger("highTemp", 10)),
+//          5, 0, 0, 1, 10, 0
+//        };
+//        break;
+//      default:
+//        text = new byte[0];
+//        Log.w(TAG, "Unsupported command: " + command + ", params: " + params.toString());
+//    }
+
+        byte length = (byte) text.length;
+        byte[] data = new byte[stx.length + 2 + text.length + 1];
+        System.arraycopy(stx, 0, data, 0, stx.length);
+        data[2] = cmdByte;
+        data[3] = length;
+        data[4]=(byte)0x00;
+        System.arraycopy(text, 0, data, 4, text.length);
+        data[data.length - 1] = calculateXOR(data, data.length - 1);
+
+        Log.d(TAG, "Built packet: " + bytesToHex(data, data.length));
+        return data;
     }
-
-    byte length = (byte) (text.length); // Length is just the text length now, including packNo
-    byte[] data = new byte[stx.length + 2 + text.length + 1]; // STX + cmd + length + text + XOR
-    System.arraycopy(stx, 0, data, 0, stx.length);
-    data[2] = cmdByte;
-    data[3] = length;
-    System.arraycopy(text, 0, data, 4, text.length); // Text includes packNo
-//    data[4]=(byte)0x00;
-    data[data.length - 1] = calculateXOR(data, data.length - 1); // Overwrite last byte with checksum
-
-    Log.d(TAG, "Built packet: " + bytesToHex(data, data.length));
-    return data;
-  }
-//   yours
+    //   yours
+//  fa fb 06 05 0a 01 00 00 01 08
 //  fa fb 06 05 0d 01 00 00 0e
 //   nodejs code
 //  command =['fa', 'fb', '06', '05',getNextNo(),'01','00','00','01']
 //   out put
 //  fa fb 06 05 01 01 00 00 01 03
 //  fa fb 06 05 00 01 00 00 01 02
-  private byte getNextPackNo() {
-    synchronized (this) {
-      packNoCounter = (byte) ((packNoCounter + 1) % 256); // Match Node.js 0-255 cycle
-      return packNoCounter == 0 ? (byte) 1 : packNoCounter; // Start at 01, not 00
+    private byte getNextPackNo() {
+        synchronized (this) {
+            packNoCounter = (byte) ((packNoCounter + 1) % 256); // Match Node.js 0-255 cycle
+            return packNoCounter == 0 ? (byte) 1 : packNoCounter; // Start at 01, not 00
+        }
     }
-  }
 
     private int clampToByte(Integer value) {
         if (value == null) return 0;
         return Math.min(Math.max(value, 0), 255); // Clamp to 0-255
     }
 
-  @PluginMethod
-  public void startReadingVMC(PluginCall call) {
-    Log.d(TAG, "startReadingVMC invoked: " + call.getData().toString());
-    if (serialPort == null) {
-      call.reject("No serial connection open");
-      return;
-    }
+    @PluginMethod
+    public void startReadingVMC(PluginCall call) {
+        Log.d(TAG, "startReadingVMC invoked: " + call.getData().toString());
+        if (serialPort == null) {
+            call.reject("No serial connection open");
+            return;
+        }
 
-    isReading = true;
-    JSObject ret = new JSObject();
-    ret.put("message", "VMC reading started");
-    notifyListeners("readingStarted", ret);
-    call.resolve(ret);
+        isReading = true;
+        JSObject ret = new JSObject();
+        ret.put("message", "VMC reading started");
+        notifyListeners("readingStarted", ret);
+        call.resolve(ret);
 
-    new Thread(() -> {
-      byte[] buffer = new byte[1024];
-      ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
+        new Thread(() -> {
+            byte[] buffer = new byte[1024];
+            ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
 
-      while (isReading) {
-        synchronized (this) {
-          if (serialPort == null) {
-            Log.w(TAG, "Serial port closed, stopping read thread");
-            break;
-          }
-          try {
-            int available = serialPort.getInputStream().available();
-            if (available > 0) {
-              int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
-              if (len > 0) {
-                packetBuffer.write(buffer, 0, len);
-                byte[] accumulated = packetBuffer.toByteArray();
-                int start = 0;
-
-                while (start <= accumulated.length - 5) {
-                  if ((accumulated[start] & 0xFF) == 0xFA && (accumulated[start + 1] & 0xFF) == 0xFB) {
-                    int packetLength = (accumulated[start + 3] & 0xFF) + 5;
-                    if (start + packetLength > accumulated.length) break;
-
-                    byte[] packet = new byte[packetLength];
-                    System.arraycopy(accumulated, start, packet, 0, packetLength);
-                    String packetHex = bytesToHex(packet, packetLength);
-
-                    byte calculatedXor = calculateXOR(packet, packetLength - 1);
-                    if (calculatedXor != packet[packetLength - 1]) {
-                      Log.w(TAG, "Invalid checksum: " + packetHex);
-                      start++;
-                      continue;
+            while (isReading) {
+                synchronized (this) {
+                    if (serialPort == null) {
+                        Log.w(TAG, "Serial port closed, stopping read thread");
+                        break;
                     }
+                    try {
+                        int available = serialPort.getInputStream().available();
+                        if (available > 0) {
+                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                            if (len > 0) {
+                                packetBuffer.write(buffer, 0, len);
+                                byte[] accumulated = packetBuffer.toByteArray();
+                                int start = 0;
 
-                    if (packetHex.equals("fafb410040")) { // POLL
-                      synchronized (commandQueue) {
-                        if (!commandQueue.isEmpty()) {
-                          byte[] response = commandQueue.poll(); // Peek, don’t poll yet
-                          Log.d(TAG, "POLL received, sending command: " + bytesToHex(response, response.length));
-                          serialPort.getOutputStream().write(response);
-                          serialPort.getOutputStream().flush();
-                          notifyListeners("serialWriteSuccess", new JSObject().put("data", bytesToHex(response, response.length)));
+                                while (start <= accumulated.length - 5) {
+                                    if ((accumulated[start] & 0xFF) == 0xFA && (accumulated[start + 1] & 0xFF) == 0xFB) {
+                                        int packetLength = (accumulated[start + 3] & 0xFF) + 5;
+                                        if (start + packetLength > accumulated.length) break;
+
+                                        byte[] packet = new byte[packetLength];
+                                        System.arraycopy(accumulated, start, packet, 0, packetLength);
+                                        String packetHex = bytesToHex(packet, packetLength);
+
+                                        byte calculatedXor = calculateXOR(packet, packetLength - 1);
+                                        if (calculatedXor != packet[packetLength - 1]) {
+                                            Log.w(TAG, "Invalid checksum: " + packetHex);
+                                            start++;
+                                            continue;
+                                        }
+
+                                        if (packetHex.equals("fafb410040")) { // POLL
+                                            synchronized (commandQueue) {
+                                                if (!commandQueue.isEmpty()) {
+                                                    byte[] response = commandQueue.poll();
+                                                    assert response != null;
+                                                    Log.d(TAG, "POLL received, sending command: " + bytesToHex(response, response.length));
+                                                    serialPort.getOutputStream().write(response);
+                                                    serialPort.getOutputStream().flush();
+                                                    notifyListeners("serialWriteSuccess", new JSObject().put("data", bytesToHex(response, response.length)));
+                                                } else {
+                                                    byte[] ack = hexStringToByteArray("fafb420043");
+                                                    Log.d(TAG, "POLL received, sending ACK: fafb420043");
+                                                    serialPort.getOutputStream().write(ack);
+                                                    serialPort.getOutputStream().flush();
+                                                    notifyListeners("serialWriteSuccess", new JSObject().put("data", "fafb420043"));
+                                                }
+                                            }
+                                        } else if (packetHex.equals("fafb420043") || packetHex.equals("fafb420143")) { // ACK
+                                            synchronized (commandQueue) {
+                                                if (!commandQueue.isEmpty()) {
+                                                    byte[] ack = hexStringToByteArray("fafb420043");
+                                                    Log.d(TAG, "ACK received, dequeued command: " + bytesToHex(ack, ack.length));
+                                                    JSObject ackEvent = new JSObject();
+                                                    ackEvent.put("data", bytesToHex(ack, ack.length));
+                                                    notifyListeners("commandAcknowledged", ackEvent);
+                                                }
+                                            }
+                                        } else { // Responses all data with ack
+                                            Log.d(TAG, "Response received: " + packetHex);
+                                            JSObject dataEvent = new JSObject();
+                                            dataEvent.put("data", packetHex);
+                                            notifyListeners("dataReceived", dataEvent);
+
+                                            byte[] ack = hexStringToByteArray("fafb420043");
+                                            Log.d(TAG, "Sending ACK: fafb420043");
+                                            serialPort.getOutputStream().write(ack);
+                                            serialPort.getOutputStream().flush();
+                                        }
+
+                                        start += packetLength;
+                                    } else {
+                                        start++;
+                                    }
+                                }
+
+                                int remaining = accumulated.length - start;
+                                if (remaining > 0) {
+                                    byte[] remainder = new byte[remaining];
+                                    System.arraycopy(accumulated, start, remainder, 0, remaining);
+                                    packetBuffer.reset();
+                                    packetBuffer.write(remainder);
+                                } else {
+                                    packetBuffer.reset();
+                                }
+                            }
+                        }
+                        Thread.sleep(10); // Reduce to 10ms for faster polling
+                    } catch (Exception e) {
+                        if (isReading) Log.e(TAG, "VMC read error: " + e.getMessage());
+                    }
+                }
+            }
+        }).start();
+    }
+    @PluginMethod
+    public void startReading(PluginCall call) {
+        if (serialPort == null) {
+            call.reject("No serial connection open");
+            return;
+        }
+
+        isReading = true;
+        JSObject ret = new JSObject();
+        ret.put("message", "Reading started");
+        notifyListeners("readingStarted", ret);
+        call.resolve(ret);
+
+        new Thread(() -> {
+            byte[] buffer = new byte[1024];
+            String lastSentData = null;
+            long lastSentTime = 0;
+            long debounceInterval = 100; // 200ms
+
+            while (isReading) {
+                synchronized (this) {
+                    if (serialPort == null) {
+                        Log.w(TAG, "Serial port closed, stopping read thread");
+                        break;
+                    }
+                    try {
+                        int available = serialPort.getInputStream().available();
+                        if (available > 0) {
+                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                            if (len > 0) {
+                                String receivedData = bytesToHex(buffer, len);
+                                long currentTime = System.currentTimeMillis();
+
+                                // Send only if data is new and enough time has passed
+                                if (!receivedData.equals(lastSentData) && (currentTime - lastSentTime >= debounceInterval)) {
+                                    JSObject dataEvent = new JSObject();
+                                    dataEvent.put("data", receivedData);
+                                    notifyListeners("dataReceived", dataEvent);
+                                    lastSentData = receivedData;
+                                    lastSentTime = currentTime;
+                                }
+                            }
                         } else {
-                          byte[] ack = hexStringToByteArray("fafb420043");
-                          Log.d(TAG, "POLL received, sending ACK: fafb420043");
-                          serialPort.getOutputStream().write(ack);
-                          serialPort.getOutputStream().flush();
-                          notifyListeners("serialWriteSuccess", new JSObject().put("data", "fafb420043"));
+                            Thread.sleep(10); // Sleep when no data
                         }
-                      }
-                    } else if (packetHex.equals("fafb420043") || packetHex.equals("fafb420143")) { // ACK
-                      synchronized (commandQueue) {
-                        if (!commandQueue.isEmpty()) {
-                          byte[] ackedCmd = commandQueue.peek(); // Dequeue on ACK
-                          Log.d(TAG, "ACK received, dequeued command: " + bytesToHex(ackedCmd, ackedCmd.length));
-                          JSObject ackEvent = new JSObject();
-                          ackEvent.put("data", bytesToHex(ackedCmd, ackedCmd.length));
-                          notifyListeners("commandAcknowledged", ackEvent);
-                        }
-                      }
-                    } else { // Response
-                      if (!sentResponses.contains(packetHex)) {
-                        Log.d(TAG, "Sending unique response to client: " + packetHex);
-                        JSObject dataEvent = new JSObject();
-                        dataEvent.put("data", packetHex);
-                        notifyListeners("dataReceived", dataEvent);
-                        sentResponses.add(packetHex);
-                      }
-                      byte[] ack = hexStringToByteArray("fafb420043");
-                      Log.d(TAG, "Sending ACK for response: fafb420043");
-                      serialPort.getOutputStream().write(ack);
-                      serialPort.getOutputStream().flush();
+                    } catch (Exception e) {
+                        if (isReading) Log.e(TAG, "Serial read error: " + e.getMessage());
                     }
-
-                    start += packetLength;
-                  } else {
-                    start++;
-                  }
                 }
-
-                int remaining = accumulated.length - start;
-                if (remaining > 0) {
-                  byte[] remainder = new byte[remaining];
-                  System.arraycopy(accumulated, start, remainder, 0, remaining);
-                  packetBuffer.reset();
-                  packetBuffer.write(remainder);
-                } else {
-                  packetBuffer.reset();
-                }
-              }
             }
-            Thread.sleep(10); // Reduce to 10ms for faster polling
-          } catch (Exception e) {
-            if (isReading) Log.e(TAG, "VMC read error: " + e.getMessage());
-          }
-        }
-      }
-    }).start();
-  }
-  @PluginMethod
-  public void startReading(PluginCall call) {
-    Log.d(TAG, "startReading invoked: " + call.getData().toString());
-    String portName = call.getString("portName");
-
-    if (usbSerialPort == null && serialPort == null) {
-      call.reject("No serial connection open");
-      return;
+        }).start();
     }
-
-    isReading = true;
-    JSObject ret = new JSObject();
-    ret.put("message", "Reading started");
-    notifyListeners("readingStarted", ret);
-    call.resolve(ret);
-
-    if (usbSerialPort != null && (portName == null || portName.equals(usbSerialPort.getDriver().getDevice().getDeviceName()))) {
-      new Thread(() -> {
-        byte[] buffer = new byte[1024];
-        while (isReading) {
-          try {
-            if (usbSerialPort != null) {
-              int len = usbSerialPort.read(buffer, 1000);
-              if (len > 0) {
-                String receivedData = bytesToHex(buffer, len);
-                Log.d(TAG, "Received from USB serial: " + receivedData);
-                JSObject dataEvent = new JSObject();
-                dataEvent.put("data", receivedData);
-                notifyListeners("dataReceived", dataEvent);
-              }
-            } else {
-              break;
-            }
-          } catch (Exception e) {
-            if (isReading) Log.e(TAG, "USB read error: " + e.getMessage());
-          }
-        }
-      }).start();
-    }
-
-    if (serialPort != null && (portName == null || portName.equals(serialPort.gettDdevicePath()))) {
-      new Thread(() -> {
-        byte[] buffer = new byte[1024];
-        while (isReading) {
-          synchronized (this) {
-            if (serialPort == null) {
-              Log.w(TAG, "Serial port closed, stopping read thread");
-              break;
-            }
-            try {
-              int available = serialPort.getInputStream().available();
-              if (available > 0) {
-                int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
-                if (len > 0) {
-                  String receivedData = bytesToHex(buffer, len);
-                  Log.d(TAG, "Received from serial: " + receivedData);
-                  JSObject dataEvent = new JSObject();
-                  dataEvent.put("data", receivedData);
-                  notifyListeners("dataReceived", dataEvent);
-                }
-              } else {
-                Thread.sleep(10);
-              }
-            } catch (Exception e) {
-              if (isReading) Log.e(TAG, "Serial read error: " + e.getMessage());
-            }
-          }
-        }
-      }).start();
-    }
-  }
 
     @PluginMethod
     public void stopReading(PluginCall call) {
@@ -712,11 +891,11 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         return sb.toString();
     }
 
-  private byte calculateXOR(byte[] data, int length) {
-    byte xor = 0;
-    for (int i = 0; i < length; i++) {
-      xor ^= data[i];
+    private byte calculateXOR(byte[] data, int length) {
+        byte xor = 0;
+        for (int i = 0; i < length; i++) {
+            xor ^= data[i];
+        }
+        return xor;
     }
-    return xor;
-  }
 }
