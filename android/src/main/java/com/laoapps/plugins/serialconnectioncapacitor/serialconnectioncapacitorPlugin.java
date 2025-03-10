@@ -369,6 +369,22 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 cmdByte = (byte) 0x11;
                 text = new byte[]{packNo, (byte) clampToByte(params.getInteger("slot", 1))};
                 break;
+          case "12": // Set selection price
+            cmdByte = (byte) 0x12;
+            int selectionNumber = clampToByte(params.getInteger("selectionNumber", 0)); // e.g., 1000 for tray 0
+            int price = params.getInteger("price", 1); // In cents, e.g., 1
+            text = new byte[7]; // 2-byte PackNo + 2-byte SelectionNumber + 3-byte Price
+            // 2-byte PackNo
+            text[0] = packNo; // Low byte
+            // 2-byte SelectionNumber (little-endian)
+            text[1] = (byte) (selectionNumber & 0xFF);
+            text[2] = (byte) ((selectionNumber >> 8) & 0xFF);
+            // 4-byte SelectionPrice (little-endian)
+            text[3] = (byte) (price & 0xFF);
+            text[4] = (byte) ((price >> 8) & 0xFF);
+            text[5] = (byte) ((price >> 16) & 0xFF);
+            text[6] = (byte) ((price >> 24) & 0xFF);
+            break;
             case "16": // Poll interval
                 cmdByte = (byte) 0x16;
                 text = new byte[]{packNo, (byte) clampToByte(params.getInteger("ms", 10))};
