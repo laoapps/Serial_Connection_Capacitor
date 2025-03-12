@@ -14,6 +14,11 @@ export interface SerialPortOptions {
    * Baud rate for the serial port connection.
    */
   baudRate: number;
+  dataBits?: number;//8
+  stopBits?: number,//1
+  parity?: string,//'none'
+  bufferSize?: number,//0
+  flags?: number,//0
 }
 
 /**
@@ -55,7 +60,7 @@ export interface SerialPortEventData {
   error?: string;
 }
 
-export type SerialPortEventTypes = 
+export type SerialPortEventTypes =
   | 'portsListed'
   | 'serialOpened'
   | 'usbSerialOpened'
@@ -83,38 +88,52 @@ export interface SerialPortPlugin {
    * @param options Connection options including port path and baud rate.
    */
   openSerial(options: SerialPortOptions): Promise<any>;
-   /**
-   * Opens a USB serial port connection.
-   * @param options Connection options including port path and baud rate.
-   */
-   openUsbSerial(options: SerialPortOptions): Promise<any>;
+  /**
+  * Opens a USB serial port connection.
+  * @param options Connection options including port path and baud rate.
+  */
+  openUsbSerial(options: SerialPortOptions): Promise<any>;
+  /**
+  * Opens a USB serial port connection.
+  * @param options Connection options including port path and baud rate.
+  */
+  openSerialEssp(options: SerialPortOptions): Promise<any>;
 
-  
 
   /**
    * Writes data to the serial port.
    * @param options Write options containing the command to send.
    */
-  
+
   write(options: SerialPortWriteOptions): Promise<any>;
+  /**
+ * Writes data to the serial port.
+ * @param options Write options containing the command to send.
+ */
+
+  writeVMC(options: SerialPortWriteOptions): Promise<any>;
     /**
-   * Writes data to the serial port.
-   * @param options Write options containing the command to send.
-   */
-  
-    writeVMC(options: SerialPortWriteOptions): Promise<any>;
+ * Writes data to the serial port.
+ * @param options Write options containing the command to send.
+ */
+
+    writeEssp(options: SerialPortWriteOptions): Promise<any>;
 
   /**
    * Start reading data from the serial port.
    * @returns Promise that resolves with the read data.
    */
   startReading(): Promise<any>;
-   /**
-   * Start reading data from the serial port.
-   * @returns Promise that resolves with the read data.
-   */
-   startReadingVMC(): Promise<any>;
-
+  /**
+  * Start reading data from the serial port.
+  * @returns Promise that resolves with the read data.
+  */
+  startReadingVMC(): Promise<any>;
+ /**
+  * Start reading  essp data from the serial port.
+  * @returns Promise that resolves with the read data.
+  */
+  startReadingEssp(): Promise<any>;
   /**
    * Stop reading data from the serial port.
    * @returns Promise that resolves with the read data.
@@ -132,6 +151,6 @@ export interface SerialPortPlugin {
    * @param listenerFunc Callback function when event occurs
    * @returns Promise with the listener handle
    */
-  addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void): Promise<PluginListenerHandle>& PluginListenerHandle;
+  addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void): Promise<PluginListenerHandle> & PluginListenerHandle;
 
 }

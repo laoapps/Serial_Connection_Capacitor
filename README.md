@@ -73,10 +73,13 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`listPorts()`](#listports)
 * [`openSerial(...)`](#openserial)
 * [`openUsbSerial(...)`](#openusbserial)
+* [`openSerialEssp(...)`](#openserialessp)
 * [`write(...)`](#write)
 * [`writeVMC(...)`](#writevmc)
+* [`writeEssp(...)`](#writeessp)
 * [`startReading()`](#startreading)
 * [`startReadingVMC()`](#startreadingvmc)
+* [`startReadingEssp()`](#startreadingessp)
 * [`stopReading()`](#stopreading)
 * [`close()`](#close)
 * [`addListener(SerialPortEventTypes, ...)`](#addlistenerserialporteventtypes-)
@@ -137,6 +140,23 @@ Opens a USB serial port connection.
 --------------------
 
 
+### openSerialEssp(...)
+
+```typescript
+openSerialEssp(options: SerialPortOptions) => Promise<any>
+```
+
+Opens a USB serial port connection.
+
+| Param         | Type                                                            | Description                                           |
+| ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| **`options`** | <code><a href="#serialportoptions">SerialPortOptions</a></code> | Connection options including port path and baud rate. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
 ### write(...)
 
 ```typescript
@@ -171,6 +191,23 @@ Writes data to the serial port.
 --------------------
 
 
+### writeEssp(...)
+
+```typescript
+writeEssp(options: SerialPortWriteOptions) => Promise<any>
+```
+
+Writes data to the serial port.
+
+| Param         | Type                                                                      | Description                                   |
+| ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
+| **`options`** | <code><a href="#serialportwriteoptions">SerialPortWriteOptions</a></code> | Write options containing the command to send. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
 ### startReading()
 
 ```typescript
@@ -191,6 +228,19 @@ startReadingVMC() => Promise<any>
 ```
 
 Start reading data from the serial port.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startReadingEssp()
+
+```typescript
+startReadingEssp() => Promise<any>
+```
+
+Start reading  essp data from the serial port.
 
 **Returns:** <code>Promise&lt;any&gt;</code>
 
@@ -257,10 +307,15 @@ Result of listing available serial ports.
 
 Options for opening a serial port connection.
 
-| Prop           | Type                | Description                                               |
-| -------------- | ------------------- | --------------------------------------------------------- |
-| **`portName`** | <code>string</code> | Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`). |
-| **`baudRate`** | <code>number</code> | Baud rate for the serial port connection.                 |
+| Prop             | Type                | Description                                               |
+| ---------------- | ------------------- | --------------------------------------------------------- |
+| **`portName`**   | <code>string</code> | Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`). |
+| **`baudRate`**   | <code>number</code> | Baud rate for the serial port connection.                 |
+| **`dataBits`**   | <code>number</code> |                                                           |
+| **`stopBits`**   | <code>number</code> |                                                           |
+| **`parity`**     | <code>string</code> |                                                           |
+| **`bufferSize`** | <code>number</code> |                                                           |
+| **`flags`**      | <code>number</code> |                                                           |
 
 
 #### SerialPortWriteOptions
