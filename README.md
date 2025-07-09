@@ -82,6 +82,15 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`startReadingEssp()`](#startreadingessp)
 * [`stopReading()`](#stopreading)
 * [`close()`](#close)
+* [`requestID(...)`](#requestid)
+* [`scanDoorFeedback(...)`](#scandoorfeedback)
+* [`pollStatus(...)`](#pollstatus)
+* [`setTemperature(...)`](#settemperature)
+* [`startMotor(...)`](#startmotor)
+* [`acknowledgeResult(...)`](#acknowledgeresult)
+* [`startMotorCombined(...)`](#startmotorcombined)
+* [`startPolling(...)`](#startpolling)
+* [`stopPolling()`](#stoppolling)
 * [`addListener(SerialPortEventTypes, ...)`](#addlistenerserialporteventtypes-)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
@@ -146,7 +155,7 @@ Opens a USB serial port connection.
 openSerialEssp(options: SerialPortOptions) => Promise<any>
 ```
 
-Opens a USB serial port connection.
+Opens a USB serial port connection for ESSP.
 
 | Param         | Type                                                            | Description                                           |
 | ------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
@@ -180,7 +189,7 @@ Writes data to the serial port.
 writeVMC(options: SerialPortWriteOptions) => Promise<any>
 ```
 
-Writes data to the serial port.
+Writes data to the serial port for VMC.
 
 | Param         | Type                                                                      | Description                                   |
 | ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
@@ -197,7 +206,7 @@ Writes data to the serial port.
 writeEssp(options: SerialPortWriteOptions) => Promise<any>
 ```
 
-Writes data to the serial port.
+Writes data to the serial port for ESSP.
 
 | Param         | Type                                                                      | Description                                   |
 | ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
@@ -214,7 +223,7 @@ Writes data to the serial port.
 startReading() => Promise<any>
 ```
 
-Start reading data from the serial port.
+Starts reading data from the serial port.
 
 **Returns:** <code>Promise&lt;any&gt;</code>
 
@@ -227,7 +236,7 @@ Start reading data from the serial port.
 startReadingVMC() => Promise<any>
 ```
 
-Start reading data from the serial port.
+Starts reading data from the serial port for VMC.
 
 **Returns:** <code>Promise&lt;any&gt;</code>
 
@@ -240,7 +249,7 @@ Start reading data from the serial port.
 startReadingEssp() => Promise<any>
 ```
 
-Start reading  essp data from the serial port.
+Starts reading ESSP data from the serial port.
 
 **Returns:** <code>Promise&lt;any&gt;</code>
 
@@ -253,7 +262,7 @@ Start reading  essp data from the serial port.
 stopReading() => Promise<any>
 ```
 
-Stop reading data from the serial port.
+Stops reading data from the serial port.
 
 **Returns:** <code>Promise&lt;any&gt;</code>
 
@@ -273,18 +282,167 @@ Closes the serial port connection.
 --------------------
 
 
+### requestID(...)
+
+```typescript
+requestID(options: { address: number; }) => Promise<any>
+```
+
+Requests the device ID for ADH814.
+
+| Param         | Type                              | Description            |
+| ------------- | --------------------------------- | ---------------------- |
+| **`options`** | <code>{ address: number; }</code> | Address of the device. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### scanDoorFeedback(...)
+
+```typescript
+scanDoorFeedback(options: { address: number; }) => Promise<any>
+```
+
+Scans door feedback for ADH814.
+
+| Param         | Type                              | Description            |
+| ------------- | --------------------------------- | ---------------------- |
+| **`options`** | <code>{ address: number; }</code> | Address of the device. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### pollStatus(...)
+
+```typescript
+pollStatus(options: { address: number; }) => Promise<any>
+```
+
+Polls status for ADH814.
+
+| Param         | Type                              | Description            |
+| ------------- | --------------------------------- | ---------------------- |
+| **`options`** | <code>{ address: number; }</code> | Address of the device. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### setTemperature(...)
+
+```typescript
+setTemperature(options: { address: number; mode: number; tempValue: number; }) => Promise<any>
+```
+
+Sets temperature for ADH814.
+
+| Param         | Type                                                               | Description                           |
+| ------------- | ------------------------------------------------------------------ | ------------------------------------- |
+| **`options`** | <code>{ address: number; mode: number; tempValue: number; }</code> | Address, mode, and temperature value. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startMotor(...)
+
+```typescript
+startMotor(options: { address: number; motorNumber: number; }) => Promise<any>
+```
+
+Starts a motor for ADH814.
+
+| Param         | Type                                                   | Description               |
+| ------------- | ------------------------------------------------------ | ------------------------- |
+| **`options`** | <code>{ address: number; motorNumber: number; }</code> | Address and motor number. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### acknowledgeResult(...)
+
+```typescript
+acknowledgeResult(options: { address: number; }) => Promise<any>
+```
+
+Acknowledges result for ADH814.
+
+| Param         | Type                              | Description            |
+| ------------- | --------------------------------- | ---------------------- |
+| **`options`** | <code>{ address: number; }</code> | Address of the device. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startMotorCombined(...)
+
+```typescript
+startMotorCombined(options: { address: number; motorNumber1: number; motorNumber2: number; }) => Promise<any>
+```
+
+Starts combined motors for ADH814.
+
+| Param         | Type                                                                          | Description                    |
+| ------------- | ----------------------------------------------------------------------------- | ------------------------------ |
+| **`options`** | <code>{ address: number; motorNumber1: number; motorNumber2: number; }</code> | Address and two motor numbers. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startPolling(...)
+
+```typescript
+startPolling(options: { address: number; interval: number; }) => Promise<any>
+```
+
+Starts polling for ADH814 status.
+
+| Param         | Type                                                | Description                   |
+| ------------- | --------------------------------------------------- | ----------------------------- |
+| **`options`** | <code>{ address: number; interval: number; }</code> | Address and polling interval. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### stopPolling()
+
+```typescript
+stopPolling() => Promise<any>
+```
+
+Stops polling for ADH814.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
 ### addListener(SerialPortEventTypes, ...)
 
 ```typescript
 addListener(eventName: SerialPortEventTypes, listenerFunc: (...args: any[]) => void) => Promise<PluginListenerHandle> & PluginListenerHandle
 ```
 
-Add listener for serial port events
+Add listener for serial port events.
 
-| Param              | Type                                                                  | Description                         |
-| ------------------ | --------------------------------------------------------------------- | ----------------------------------- |
-| **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code> | The event to listen for             |
-| **`listenerFunc`** | <code>(...args: any[]) =&gt; void</code>                              | Callback function when event occurs |
+| Param              | Type                                                                  | Description                          |
+| ------------------ | --------------------------------------------------------------------- | ------------------------------------ |
+| **`eventName`**    | <code><a href="#serialporteventtypes">SerialPortEventTypes</a></code> | The event to listen for.             |
+| **`listenerFunc`** | <code>(...args: any[]) =&gt; void</code>                              | Callback function when event occurs. |
 
 **Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt; & <a href="#pluginlistenerhandle">PluginListenerHandle</a></code>
 
@@ -339,7 +497,9 @@ Options for writing to a serial port.
 
 #### SerialPortEventTypes
 
-<code>'portsListed' | 'serialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'serialWriteSuccess' | 'commandAcknowledged' | 'commandQueued'</code>
+Event types for serial port events
+
+<code>'portsListed' | 'serialOpened' | 'usbSerialOpened' | 'connectionClosed' | 'usbWriteSuccess' | 'dataReceived' | 'readingStarted' | 'readingStopped' | 'serialWriteSuccess' | 'commandAcknowledged' | 'commandQueued' | 'adh814Response'</code>
 
 </docgen-api>
 
