@@ -823,6 +823,81 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
     //ADH814
     @PluginMethod
+    public void querySwap(PluginCall call) {
+        int address = call.getInt("address", 1);
+        if (address < 1 || address > 4) {
+            call.reject("Address must be 0x01-0x04");
+            return;
+        }
+        byte[] request = createADH814Request(address, 0x34, new byte[0]);
+        sendADH814Request(request, call);
+    }
+
+    @PluginMethod
+    public void setSwap(PluginCall call) {
+        int address = call.getInt("address", 1);
+        int swapEnabled = call.getInt("swapEnabled", 1); // 0x01 for enabled, 0x00 for disabled
+        if (address < 1 || address > 4) {
+            call.reject("Address must be 0x01-0x04");
+            return;
+        }
+        if (swapEnabled < 0 || swapEnabled > 1) {
+            call.reject("swapEnabled must be 0x00 or 0x01");
+            return;
+        }
+        byte[] data = new byte[]{(byte) swapEnabled};
+        byte[] request = createADH814Request(address, 0x35, data);
+        sendADH814Request(request, call);
+    }
+
+    @PluginMethod
+    public void switchToTwoWireMode(PluginCall call) {
+        int address = call.getInt("address", 1);
+        if (address < 1 || address > 4) {
+            call.reject("Address must be 0x01-0x04");
+            return;
+        }
+        byte[] data = new byte[]{0x10, 0x00}; // As per original TypeScript code
+        byte[] request = createADH814Request(address, 0x21, data);
+        sendADH814Request(request, call);
+    }
+
+    @PluginMethod
+    public void startMotor(PluginCall call) {
+        int address = call.getInt("address", 1);
+        int motorNumber = call.getInt("motorNumber", 0);
+        if (address < 1 || address > 4) {
+            call.reject("Address must be 0x01-0x04");
+            return;
+        }
+        if (motorNumber < 0 || motorNumber > 0xFE) {
+            call.reject("Motor number must be 0x00-0xFE");
+            return;
+        }
+        byte[] data = new byte[]{(byte) motorNumber};
+        byte[] request = createADH814Request(address, 0xA5, data);
+        sendADH814Request(request, call);
+    }
+
+    @PluginMethod
+    public void startMotorCombined(PluginCall call) {
+        int address = call.getInt("address", 1);
+        int motorNumber1 = call.getInt("motorNumber1", 0);
+        int motorNumber2 = call.getInt("motorNumber2", 0);
+        if (address < 1 || address > 4) {
+            call.reject("Address must be 0x01-0x04");
+            return;
+        }
+        if (motorNumber1 < 0 || motorNumber1 > 0xFE || motorNumber2 < 0 || motorNumber2 > 0xFE) {
+            call.reject("Motor numbers must be 0x00-0xFE");
+            return;
+        }
+        byte[] data = new byte[]{(byte) motorNumber1, (byte) motorNumber2};
+        byte[] request = createADH814Request(address, 0xB5, data);
+        sendADH814Request(request, call);
+    }
+
+    @PluginMethod
     public void requestID(PluginCall call) {
         int address = call.getInt("address", 1);
         if (address < 1 || address > 4) {
@@ -878,23 +953,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void startMotor(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int motorNumber = call.getInt("motorNumber", 0);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (motorNumber < 0 || motorNumber > 0xFE) {
-            call.reject("Motor number must be 0x00-0xFE");
-            return;
-        }
-        byte[] data = new byte[]{(byte) motorNumber};
-        byte[] request = createADH814Request(address, 0xA5, data);
-        sendADH814Request(request, call);
-    }
-
-    @PluginMethod
     public void acknowledgeResult(PluginCall call) {
         int address = call.getInt("address", 1);
         if (address < 1 || address > 4) {
@@ -902,24 +960,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             return;
         }
         byte[] request = createADH814Request(address, 0xA6, new byte[0]);
-        sendADH814Request(request, call);
-    }
-
-    @PluginMethod
-    public void startMotorCombined(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int motorNumber1 = call.getInt("motorNumber1", 0);
-        int motorNumber2 = call.getInt("motorNumber2", 0);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (motorNumber1 < 0 || motorNumber1 > 0xFE || motorNumber2 < 0 || motorNumber2 > 0xFE) {
-            call.reject("Motor numbers must be 0x00-0xFE");
-            return;
-        }
-        byte[] data = new byte[]{(byte) motorNumber1, (byte) motorNumber2};
-        byte[] request = createADH814Request(address, 0xB5, data);
         sendADH814Request(request, call);
     }
 
@@ -1076,12 +1116,16 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 return;
             }
 
-            if (!Arrays.asList(0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xB5).contains(command)) {
+            if (!Arrays.asList(0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xB5, 0x34, 0x35, 0x21).contains(command)) {
                 Log.w(TAG, "Invalid ADH814 command: 0x" + Integer.toHexString(command));
                 return;
             }
 
-            if (command != 0xA1 && address != 0x00) {
+            // Validate address: 0xA1 expects 0x01-0x04, others expect 0x00
+            if (command == 0xA1 && (address < 0x01 || address > 0x04)) {
+                Log.w(TAG, "Invalid address for ID command 0xA1: expected 0x01-0x04, got 0x" + Integer.toHexString(address));
+                return;
+            } else if (command != 0xA1 && address != 0x00) {
                 Log.w(TAG, "Invalid address for command 0x" + Integer.toHexString(command) +
                         ": expected 0x00, got 0x" + Integer.toHexString(address));
                 return;
@@ -1137,8 +1181,8 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                         response.put("tempValue", (data[1] << 8) | (data[2] & 0xFF));
                     }
                     break;
-                case 0xA5: // RUN
-                case 0xB5: // RUN2
+                case 0xA5: // RUN (shippingcontrol)
+                case 0xB5: // RUN2 (shippingcontrol combined)
                     if (data.length >= 1) {
                         int executionStatus = data[0] & 0xFF;
                         response.put("executionStatus", executionStatus);
@@ -1150,6 +1194,22 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                     break;
                 case 0xA6: // ACK
                     response.put("message", "Result acknowledged");
+                    break;
+                case 0x34: // querySwap
+                    if (data.length >= 1) {
+                        response.put("swapEnabled", data[0] & 0xFF); // 0x01 enabled, 0x00 disabled
+                    }
+                    break;
+                case 0x35: // setSwap
+                    if (data.length >= 1) {
+                        response.put("swapEnabled", data[0] & 0xFF); // Confirm setting
+                    }
+                    break;
+                case 0x21: // switchToTwoWireMode
+                    if (data.length >= 2) {
+                        response.put("mode", data[0] & 0xFF);
+                        response.put("status", data[1] & 0xFF);
+                    }
                     break;
             }
 
@@ -1175,7 +1235,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             default: return "Unknown error";
         }
     }
-
 
     //ADH814
 }

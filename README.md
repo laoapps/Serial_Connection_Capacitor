@@ -91,6 +91,9 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`startMotorCombined(...)`](#startmotorcombined)
 * [`startPolling(...)`](#startpolling)
 * [`stopPolling()`](#stoppolling)
+* [`querySwap(...)`](#queryswap)
+* [`setSwap(...)`](#setswap)
+* [`switchToTwoWireMode(...)`](#switchtotwowiremode)
 * [`addListener(SerialPortEventTypes, ...)`](#addlistenerserialporteventtypes-)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
@@ -425,6 +428,57 @@ stopPolling() => Promise<any>
 ```
 
 Stops polling for ADH814.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### querySwap(...)
+
+```typescript
+querySwap(options: { address: number; }) => Promise<any>
+```
+
+Queries row/column swap status for ADH814.
+
+| Param         | Type                              | Description            |
+| ------------- | --------------------------------- | ---------------------- |
+| **`options`** | <code>{ address: number; }</code> | Address of the device. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### setSwap(...)
+
+```typescript
+setSwap(options: { address: number; swapEnabled: number; }) => Promise<any>
+```
+
+Sets row/column swap for ADH814.
+
+| Param         | Type                                                   | Description                                     |
+| ------------- | ------------------------------------------------------ | ----------------------------------------------- |
+| **`options`** | <code>{ address: number; swapEnabled: number; }</code> | Address and swap enabled status (0x00 or 0x01). |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### switchToTwoWireMode(...)
+
+```typescript
+switchToTwoWireMode(options: { address: number; }) => Promise<any>
+```
+
+Switches to two-wire mode for ADH814.
+
+| Param         | Type                              | Description            |
+| ------------- | --------------------------------- | ---------------------- |
+| **`options`** | <code>{ address: number; }</code> | Address of the device. |
 
 **Returns:** <code>Promise&lt;any&gt;</code>
 

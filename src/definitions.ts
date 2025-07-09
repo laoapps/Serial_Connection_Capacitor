@@ -203,6 +203,23 @@ export interface SerialPortPlugin {
    * Stops polling for ADH814.
    */
   stopPolling(): Promise<any>;
+  /**
+   * Queries row/column swap status for ADH814.
+   * @param options Address of the device.
+   */
+  querySwap(options: { address: number }): Promise<any>;
+
+  /**
+   * Sets row/column swap for ADH814.
+   * @param options Address and swap enabled status (0x00 or 0x01).
+   */
+  setSwap(options: { address: number; swapEnabled: number }): Promise<any>;
+
+  /**
+   * Switches to two-wire mode for ADH814.
+   * @param options Address of the device.
+   */
+  switchToTwoWireMode(options: { address: number }): Promise<any>;
 
   /**
    * Add listener for serial port events.

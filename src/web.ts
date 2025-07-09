@@ -74,7 +74,20 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
     console.log('close');
     throw new Error('close is not supported on the web platform.');
   }
+  async querySwap(_options: { address: number }): Promise<any> {
+    console.log('querySwap', _options);
+    throw new Error('querySwap is not supported on the web platform.');
+  }
 
+  async setSwap(_options: { address: number; swapEnabled: number }): Promise<any> {
+    console.log('setSwap', _options);
+    throw new Error('setSwap is not supported on the web platform.');
+  }
+
+  async switchToTwoWireMode(_options: { address: number }): Promise<any> {
+    console.log('switchToTwoWireMode', _options);
+    throw new Error('switchToTwoWireMode is not supported on the web platform.');
+  }
   async requestID(_options: { address: number }): Promise<any> {
     console.log('requestID', _options);
     throw new Error('requestID is not supported on the web platform.');
