@@ -1149,9 +1149,12 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                 String packetHex = bytesToHex(packet, packetLength);
 
                                 JSObject response = parseADH814Response(packet, expectedLength);
+                                Log.d(TAG, "Response received: " + bytesToHex(buffer, len));
                                 Log.d(TAG, "Response received: " + packetHex);
                                 Log.d(TAG, "Full response sent to client: " + response.toString());
-                                notifyListeners("dataReceived", response);
+                                JSObject dataEvent = new JSObject();
+                                dataEvent.put("data", bytesToHex(buffer, len));
+                                notifyListeners("dataReceived", dataEvent);
 
                                 synchronized (commandQueue) {
                                     if (!commandQueue.isEmpty()) {
