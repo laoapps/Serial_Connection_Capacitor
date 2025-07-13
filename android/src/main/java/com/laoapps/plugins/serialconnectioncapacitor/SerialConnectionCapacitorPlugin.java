@@ -971,7 +971,10 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     private void startProcessingQueueADH814() {
-
+        if (isProcessingQueue) {
+            Log.d(TAG, "Queue processing already running");
+            return;
+        }
         isProcessingQueue = true;
         new Thread(() -> {
             while (isProcessingQueue && isReading) {
@@ -990,7 +993,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                 serialPort.getOutputStream().write(command);
                                 serialPort.getOutputStream().flush();
                                 notifyListeners("serialWriteSuccess", new JSObject().put("data", commandHex));
-                                Thread.sleep(1000); // Wait 1s for response
+                                Thread.sleep(500); // Wait 1s for response
                             }
                         }
                     } catch (IOException e) {
@@ -1000,7 +1003,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                     }
                 }
                 try {
-                    Thread.sleep(50); // 50ms loop interval
+                    Thread.sleep(10); // 50ms loop interval
                 } catch (InterruptedException e) {
                     Log.w(TAG, "Queue processing interrupted: " + e.getMessage());
                     isProcessingQueue = false;
@@ -1013,7 +1016,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     @PluginMethod
     public void writeADH814(PluginCall call) {
-        Log.d(TAG, "write invoked: " + call.getData().toString());
+        Log.d(TAG, "write invoked ADH814: " + call.getData().toString());
         String data = call.getString("data");
         if (data == null) {
             call.reject("Data required");
@@ -1044,9 +1047,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                         ret.put("message", "ADH814 command queued (attempt " + attempt + ")");
                         ret.put("data", bytesToHex(packet, packet.length));
                         notifyListeners("commandQueued", ret);
-                        if (!isProcessingQueue) {
-                            startProcessingQueueADH814();
-                        }
+
+                        startProcessingQueueADH814();
+
                         call.resolve(ret);
                         return;
                     } catch (Exception e) {
@@ -1069,9 +1072,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 ret.put("message", "ADH814 command queued");
                 ret.put("data", bytesToHex(packet, packet.length));
                 notifyListeners("commandQueued", ret);
-                if (!isProcessingQueue) {
-                    startProcessingQueueADH814();
-                }
+                startProcessingQueueADH814();
 
                 call.resolve(ret);
             }
@@ -1090,7 +1091,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         }
 
         try {
-            serialPort.getInputStream().skip(serialPort.getInputStream().available()); // Clear input buffer
+            serialPort.getInputStream().skip(serialPort.getInputStream().available());
         } catch (IOException e) {
             Log.w(TAG, "Failed to clear input buffer: " + e.getMessage());
         }
@@ -1101,112 +1102,122 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         notifyListeners("readingStarted", ret);
         call.resolve(ret);
 
-        new Thread(() -> {
+        Thread readingThread = new Thread(() -> {
             byte[] buffer = new byte[1024];
             ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
 
             while (isReading) {
-                synchronized (this) {
-                    if (serialPort == null) {
-                        Log.w(TAG, "Serial port closed, stopping read thread");
-                        break;
-                    }
-                    try {
-                        int available = serialPort.getInputStream().available();
-//            Log.d(TAG, "Bytes available: " + available);
-                        if (available > 0) {
-                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
-                            if (len > 0) {
-                                Log.d(TAG, "Read " + len + " bytes: " + bytesToHex(buffer, len));
-                                packetBuffer.write(buffer, 0, len);
-                                byte[] accumulated = packetBuffer.toByteArray();
-                                int start = 0;
+                try {
+                    int available = serialPort.getInputStream().available();
+//            Log.d(TAG, "Bytes available: " + available + ", Queue size: " + commandQueue.size() +
+//              ", needsIdleCheck: " + needsIdleCheck + ", needsPostA5Poll: " + needsPostA5Poll);
+                    if (available > 0) {
+                        int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                        if (len > 0) {
+                            Log.d(TAG, "Read " + len + " bytes: " + bytesToHex(buffer, len));
+                            packetBuffer.write(buffer, 0, len);
+                            byte[] accumulated = packetBuffer.toByteArray();
+                            int start = 0;
 
-                                while (start < accumulated.length) {
-                                    if (accumulated.length - start < 4) {
-                                        Log.d(TAG, "Partial packet, waiting for more data: " + bytesToHex(accumulated, accumulated.length));
-                                        break; // Minimum frame length
-                                    }
+                            while (start < accumulated.length && isReading) {
+                                if (accumulated.length - start < 4) {
+                                    Log.d(TAG, "Partial packet, waiting for more data: " + bytesToHex(accumulated, accumulated.length));
+                                    break;
+                                }
 
-                                    // Find valid start byte (0x00 or 0x01 for A1)
-                                    int validStart = start;
-                                    while (validStart < accumulated.length &&
-                                            accumulated[validStart] != 0x00 &&
-                                            !(accumulated[validStart] == 0x01 && validStart + 1 < accumulated.length && accumulated[validStart + 1] == (byte) 0xA1)) {
-                                        Log.w(TAG, "Skipping invalid byte at position " + validStart + ": " + String.format("%02x", accumulated[validStart]));
-                                        validStart++;
-                                    }
+                                // Find valid start byte (0x00 or 0x01 for A1)
+                                int validStart = start;
+                                while (validStart < accumulated.length &&
+                                        accumulated[validStart] != 0x00 &&
+                                        !(accumulated[validStart] == 0x01 && validStart + 1 < accumulated.length && accumulated[validStart + 1] == (byte) 0xA1)) {
+                                    Log.w(TAG, "Discarding invalid byte at position " + validStart + ": " + String.format("%02x", accumulated[validStart]));
+                                    validStart++;
+                                }
 
-                                    if (validStart >= accumulated.length) {
-                                        Log.d(TAG, "No valid start byte found, discarding buffer: " + bytesToHex(accumulated, accumulated.length));
-                                        packetBuffer.reset();
-                                        break;
-                                    }
+                                if (validStart >= accumulated.length) {
+                                    Log.d(TAG, "No valid start byte found, discarding buffer: " + bytesToHex(accumulated, accumulated.length));
+                                    packetBuffer.reset();
+                                    break;
+                                }
 
-                                    start = validStart;
-                                    int expectedLength = commandQueue.isEmpty() ? 4 :
-                                            expectedResponseLengths.getOrDefault(bytesToHex(commandQueue.peek(), commandQueue.peek().length), 4);
+                                start = validStart;
+                                int expectedLength = commandQueue.isEmpty() ? 4 :
+                                        expectedResponseLengths.getOrDefault(bytesToHex(commandQueue.peek(), commandQueue.peek().length), 4);
+                                int packetLength = Math.min(expectedLength, accumulated.length - start);
+                                byte[] packet = new byte[packetLength];
+                                System.arraycopy(accumulated, start, packet, 0, packetLength);
+                                String packetHex = bytesToHex(packet, packetLength);
 
-                                    if (start + expectedLength > accumulated.length) {
-                                        Log.d(TAG, "Incomplete packet, need " + expectedLength + " bytes, have " + (accumulated.length - start));
-                                        break;
-                                    }
+                                JSObject response = parseADH814Response(packet, expectedLength);
+                                Log.d(TAG, "Response received: " + packetHex);
+                                Log.d(TAG, "Full response sent to client: " + response.toString());
+                                notifyListeners("dataReceived", response);
 
-                                    byte[] packet = new byte[expectedLength];
-                                    System.arraycopy(accumulated, start, packet, 0, expectedLength);
-                                    String packetHex = bytesToHex(packet, packet.length);
-
-                                    JSObject response = parseADH814Response(packet, expectedLength);
-                                    Log.d(TAG, "Response received: " + packetHex);
-                                    notifyListeners("dataReceived", response);
-
-                                    synchronized (commandQueue) {
-                                        if (!commandQueue.isEmpty()) {
-                                            byte[] sentCommand = commandQueue.peek();
-                                            int sentCommandCode = sentCommand[1] & 0xFF;
-                                            int receivedCommandCode = packet[1] & 0xFF;
-                                            Log.d(TAG, "sentCommandCode: " + sentCommandCode+" receivedCommandCode "+receivedCommandCode );
-
-                                            if (sentCommandCode == receivedCommandCode) {
-                                                commandQueue.poll();
-                                                expectedResponseLengths.remove(bytesToHex(sentCommand, sentCommand.length));
-
-                                                if (receivedCommandCode == 0xA3 && response.has("statusDetails") &&
-                                                        response.getJSObject("statusDetails").getInteger("status") == 2
-                                                        ||
-                                                        receivedCommandCode!=0xA6
-                                                ) {
-                                                    byte[] ackPacket = buildADH814Packet("A6", new JSObject().put("address", sentCommand[0] & 0xFF));
-                                                    commandQueue.add(ackPacket);
-                                                    expectedResponseLengths.put(bytesToHex(ackPacket, ackPacket.length), 4);
-                                                    Log.d(TAG, "Queued ACK command: " + bytesToHex(ackPacket, ackPacket.length));
+                                synchronized (commandQueue) {
+                                    if (!commandQueue.isEmpty()) {
+                                        byte[] sentCommand = commandQueue.peek();
+                                        int sentCommandCode = sentCommand[1] & 0xFF;
+                                        int receivedCommandCode = packet[1] & 0xFF;
+                                        Log.d(TAG, "sentCommandCode: " + sentCommandCode + ", receivedCommandCode: " + receivedCommandCode);
+                                        if (sentCommandCode == receivedCommandCode) {
+                                            commandQueue.poll();
+                                            expectedResponseLengths.remove(bytesToHex(sentCommand, sentCommand.length));
+                                            // Queue ACK for non-A6 responses or A3 with status 2
+                                            if (receivedCommandCode != 0xA6 || (receivedCommandCode == 0xA3 && response.has("statusDetails") &&
+                                                    response.getJSObject("statusDetails").getInteger("status") == 2)) {
+                                                Thread.sleep(2000);
+                                                byte[] ackPacket = buildADH814Packet("A6", new JSObject().put("address", sentCommand[0] & 0xFF));
+                                                commandQueue.add(ackPacket);
+                                                expectedResponseLengths.put(bytesToHex(ackPacket, ackPacket.length), 4);
+                                                Log.d(TAG, "Queued ACK command for response " + packetHex + ": " + bytesToHex(ackPacket, ackPacket.length));
+                                                needsIdleCheck = true; // Poll for idle state after ACK
+                                            }
+                                            if (receivedCommandCode == 0xA3 && response.has("statusDetails")) {
+                                                int status = response.getJSObject("statusDetails").getInteger("status");
+                                                if (status == 0) {
+                                                    needsIdleCheck = false; // Board is idle
                                                 }
+                                            } else if (receivedCommandCode == 0xA5) {
+                                                needsPostA5Poll = true; // Poll after A5
                                             }
                                         }
                                     }
-                                    start += expectedLength;
+                                    if (responseLatch != null) {
+                                        responseLatch.countDown();
+                                        Log.d(TAG, "Signaled responseLatch for command processing");
+                                    }
                                 }
-
-                                int remaining = accumulated.length - start;
-                                if (remaining > 0) {
-                                    byte[] remainder = new byte[remaining];
-                                    System.arraycopy(accumulated, start, remainder, 0, remaining);
-                                    packetBuffer.reset();
-                                    packetBuffer.write(remainder);
-                                    Log.d(TAG, "Stored " + remaining + " remaining bytes: " + bytesToHex(remainder, remaining));
-                                } else {
-                                    packetBuffer.reset();
-                                }
+                                start += packetLength;
                             }
-                        } else {
-                            Thread.sleep(50); // 50ms sleep as per requirement
+
+                            int remaining = accumulated.length - start;
+                            if (remaining > 0) {
+                                byte[] remainder = new byte[remaining];
+                                System.arraycopy(accumulated, start, remainder, 0, remaining);
+                                packetBuffer.reset();
+                                packetBuffer.write(remainder);
+                                Log.d(TAG, "Stored " + remaining + " remaining bytes: " + bytesToHex(remainder, remaining));
+                            } else {
+                                packetBuffer.reset();
+                            }
                         }
-                    } catch (Exception e) {
-                        if (isReading) Log.e(TAG, "ADH814 read error: " + e.getMessage());
+                    } else {
+                        try {
+                            Thread.sleep(50); // 50ms sleep when no data
+                        } catch (InterruptedException e) {
+                            if (!isReading) {
+                                Log.d(TAG, "Reading thread interrupted, stopping");
+                                break;
+                            }
+                        }
                     }
+                } catch (Exception e) {
+                    if (isReading) Log.e(TAG, "ADH814 read error: " + e.getMessage());
                 }
             }
-        }).start();
+            Log.d(TAG, "Reading thread stopped");
+        });
+        readingThread.start();
     }
     // CRC calculations as provided
     public static int calculateCRCResponse(byte[] data) {
@@ -1240,5 +1251,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
     private final Map<String, Integer> expectedResponseLengths = new ConcurrentHashMap<>();
     private volatile boolean isProcessingQueue = false;
+    private volatile boolean needsIdleCheck = false;
+    private volatile boolean needsPostA5Poll = false;
+    private final Object queueLock = new Object();
+    private volatile CountDownLatch responseLatch = null;
     //ADH814
 }
