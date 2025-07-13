@@ -20,10 +20,14 @@ import com.hoho.android.usbserial.driver.UsbSerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 import com.hoho.android.usbserial.driver.Ch34xSerialDriver;
 import com.hoho.android.usbserial.driver.ProbeTable;
+import java.util.concurrent.Semaphore;
 
 import android.serialport.SerialPort; // Updated version
 
 
+import androidx.annotation.RequiresApi;
+
+import org.json.JSONException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -36,52 +40,14 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 
 @CapacitorPlugin(name = "SerialCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
-
-    // ADH814
     private static final String TAG = "SerialConnCap";
-    private final Map<Integer, PluginCall> adh814ResponseListeners = new ConcurrentHashMap<>();
-    private volatile boolean isPolling = false;
-    private Thread pollingThread;
-    private static final int RESPONSE_TIMEOUT_MS = 2000;
-    private static final int[] CRC_TABLE = {
-            0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
-            0xC601, 0x06C0, 0x0780, 0xC741, 0x0500, 0xC5C1, 0xC481, 0x0440,
-            0xCC01, 0x0CC0, 0x0D80, 0xCD41, 0x0F00, 0xCFC1, 0xCE81, 0x0E40,
-            0x0A00, 0xCAC1, 0xCB81, 0x0B40, 0xC901, 0x09C0, 0x0880, 0xC841,
-            0xD801, 0x18C0, 0x1980, 0xD941, 0x1B00, 0xDBC1, 0xDA81, 0x1A40,
-            0x1E00, 0xDEC1, 0xDF81, 0x1F40, 0xDD01, 0x1DC0, 0x1C80, 0xDC41,
-            0x1400, 0xD4C1, 0xD581, 0x1540, 0xD701, 0x17C0, 0x1680, 0xD641,
-            0xD201, 0x12C0, 0x1380, 0xD341, 0x1100, 0xD1C1, 0xD081, 0x1040,
-            0xF001, 0x30C0, 0x3180, 0xF141, 0x3300, 0xF3C1, 0xF281, 0x3240,
-            0x3600, 0xF6C1, 0xF781, 0x3740, 0xF501, 0x35C0, 0x3480, 0xF441,
-            0x3C00, 0xFCC1, 0xFD81, 0x3D40, 0xFF01, 0x3FC0, 0x3E80, 0xFE41,
-            0xFA01, 0x3AC0, 0x3B80, 0xFB41, 0x3900, 0xF9C1, 0xF881, 0x3840,
-            0x2800, 0xE8C1, 0xE981, 0x2940, 0xEB01, 0x2BC0, 0x2A80, 0xEA41,
-            0xEE01, 0x2EC0, 0x2F80, 0xEF41, 0x2D00, 0xEDC1, 0xEC81, 0x2C40,
-            0xE401, 0x24C0, 0x2580, 0xE541, 0x2700, 0xE7C1, 0xE681, 0x2640,
-            0x2200, 0xE2C1, 0xE381, 0x2340, 0xE101, 0x21C0, 0x2080, 0xE041,
-            0xA001, 0x60C0, 0x6180, 0xA141, 0x6300, 0xA3C1, 0xA281, 0x6240,
-            0x6600, 0xA6C1, 0xA781, 0x6740, 0xA501, 0x65C0, 0x6480, 0xA441,
-            0x6C00, 0xACC1, 0xAD81, 0x6D40, 0xAF01, 0x6FC0, 0x6E80, 0xAE41,
-            0xAA01, 0x6AC0, 0x6B80, 0xAB41, 0x6900, 0xA9C1, 0xA881, 0x6840,
-            0x7800, 0xB8C1, 0xB981, 0x7940, 0xBB01, 0x7BC0, 0x7A80, 0xBA41,
-            0xBE01, 0x7EC0, 0x7F80, 0xBF41, 0x7D00, 0xBDC1, 0xBC81, 0x7C40,
-            0xB401, 0x74C0, 0x7580, 0xB541, 0x7700, 0xB7C1, 0xB681, 0x7640,
-            0x7200, 0xB2C1, 0xB381, 0x7340, 0xB101, 0x71C0, 0x7080, 0xB041,
-            0x5000, 0x90C1, 0x9181, 0x5140, 0x9301, 0x53C0, 0x5280, 0x9241,
-            0x9601, 0x56C0, 0x5780, 0x9741, 0x5500, 0x95C1, 0x9481, 0x5440,
-            0x9C01, 0x5CC0, 0x5D80, 0x9D41, 0x5F00, 0x9FC1, 0x9E81, 0x5E40,
-            0x5A00, 0x9AC1, 0x9B81, 0x5B40, 0x9901, 0x59C0, 0x5880, 0x9841,
-            0x8801, 0x48C0, 0x4980, 0x8941, 0x4B00, 0x8BC1, 0x8A81, 0x4A40,
-            0x4E00, 0x8EC1, 0x8F81, 0x4F40, 0x8D01, 0x4DC0, 0x4C80, 0x8C41,
-            0x4400, 0x84C1, 0x8581, 0x4540, 0x8701, 0x47C0, 0x4680, 0x8641,
-            0x8201, 0x42C0, 0x4380, 0x8341, 0x4100, 0x81C1, 0x8081, 0x4040
-    };
-    // ADH814
+
 
 
     private UsbSerialPort usbSerialPort;
@@ -353,7 +319,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 }
             } else if (usbSerialPort != null) {
                 try {
-                    usbSerialPort.write(bytes, 5000);
+                    usbSerialPort.write(bytes, 2000);
                     Log.d(TAG, "Data written to USB serial: " + data);
                     ret.put("message", "Data written successfully to USB serial");
                     ret.put("data", data);
@@ -678,7 +644,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                 }
                             }
                         }
-                        Thread.sleep(10);
+                        Thread.sleep(50);
                     } catch (Exception e) {
                         if (isReading) Log.e(TAG, "VMC read error: " + e.getMessage());
                     }
@@ -729,7 +695,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                 }
                             }
                         } else {
-                            Thread.sleep(10);
+                            Thread.sleep(50);
                         }
                     } catch (Exception e) {
                         if (isReading) Log.e(TAG, "Serial read error: " + e.getMessage());
@@ -798,6 +764,10 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     private String bytesToHex(byte[] bytes, int length) {
+        if (bytes == null || length <= 0) {
+            Log.w(TAG, "Invalid bytesToHex input: bytes=" + (bytes == null ? "null" : "empty") + ", length=" + length);
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < length; i++) {
             sb.append(String.format("%02x", bytes[i]));
@@ -821,420 +791,454 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         }
         return sb.toString();
     }
-    //ADH814
-    @PluginMethod
-    public void querySwap(PluginCall call) {
-        int address = call.getInt("address", 1);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        byte[] request = createADH814Request(address, 0x34, new byte[0]);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void setSwap(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int swapEnabled = call.getInt("swapEnabled", 1); // 0x01 for enabled, 0x00 for disabled
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (swapEnabled < 0 || swapEnabled > 1) {
-            call.reject("swapEnabled must be 0x00 or 0x01");
-            return;
-        }
-        byte[] data = new byte[]{(byte) swapEnabled};
-        byte[] request = createADH814Request(address, 0x35, data);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void switchToTwoWireMode(PluginCall call) {
-        int address = call.getInt("address", 1);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        byte[] data = new byte[]{0x10, 0x00}; // As per original TypeScript code
-        byte[] request = createADH814Request(address, 0x21, data);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void startMotor(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int motorNumber = call.getInt("motorNumber", 0);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (motorNumber < 0 || motorNumber > 0xFE) {
-            call.reject("Motor number must be 0x00-0xFE");
-            return;
-        }
-        byte[] data = new byte[]{(byte) motorNumber};
-        byte[] request = createADH814Request(address, 0xA5, data);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void startMotorCombined(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int motorNumber1 = call.getInt("motorNumber1", 0);
-        int motorNumber2 = call.getInt("motorNumber2", 0);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (motorNumber1 < 0 || motorNumber1 > 0xFE || motorNumber2 < 0 || motorNumber2 > 0xFE) {
-            call.reject("Motor numbers must be 0x00-0xFE");
-            return;
-        }
-        byte[] data = new byte[]{(byte) motorNumber1, (byte) motorNumber2};
-        byte[] request = createADH814Request(address, 0xB5, data);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void requestID(PluginCall call) {
-        int address = call.getInt("address", 1);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        byte[] request = createADH814Request(address, 0xA1, new byte[0]);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void scanDoorFeedback(PluginCall call) {
-        int address = call.getInt("address", 1);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        byte[] request = createADH814Request(address, 0xA2, new byte[0]);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void pollStatus(PluginCall call) {
-        int address = call.getInt("address", 1);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        byte[] request = createADH814Request(address, 0xA3, new byte[0]);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void setTemperature(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int mode = call.getInt("mode", 0);
-        int tempValue = call.getInt("tempValue", 0);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (mode < 0 || mode > 2) {
-            call.reject("Mode must be 0x00-0x02");
-            return;
-        }
-        if (tempValue < -127 || tempValue > 127) {
-            call.reject("Temp value must be -127 to 127");
-            return;
-        }
-        byte[] data = new byte[]{(byte) mode, (byte) ((tempValue >> 8) & 0xFF), (byte) (tempValue & 0xFF)};
-        byte[] request = createADH814Request(address, 0xA4, data);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void acknowledgeResult(PluginCall call) {
-        int address = call.getInt("address", 1);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        byte[] request = createADH814Request(address, 0xA6, new byte[0]);
-        sendADH814Request(request, call);
-    }
 
-    @PluginMethod
-    public void startPolling(PluginCall call) {
-        int address = call.getInt("address", 1);
-        int interval = call.getInt("interval", 300);
-        if (address < 1 || address > 4) {
-            call.reject("Address must be 0x01-0x04");
-            return;
-        }
-        if (interval < 100) {
-            call.reject("Polling interval must be at least 100ms");
-            return;
-        }
 
-        if (isPolling) {
-            stopPolling(null);
-        }
 
-        isPolling = true;
-        pollingThread = new Thread(() -> {
-            while (isPolling && (serialPort != null || usbSerialPort != null)) {
-                try {
-                    byte[] request = createADH814Request(address, 0xA3, new byte[0]);
-                    sendADH814Request(request, null); // Send without PluginCall to emit via adh814Response
-                    Thread.sleep(interval);
-                } catch (Exception e) {
-                    Log.e(TAG, "Polling error: " + e.getMessage());
-                }
-            }
-        });
-        pollingThread.start();
 
-        JSObject ret = new JSObject();
-        ret.put("message", "Polling started with interval " + interval + "ms");
-        notifyListeners("readingStarted", ret);
-        call.resolve(ret);
-    }
 
-    @PluginMethod
-    public void stopPolling(PluginCall call) {
-        isPolling = false;
-        if (pollingThread != null) {
-            pollingThread.interrupt();
-            pollingThread = null;
-        }
-        JSObject ret = new JSObject();
-        ret.put("message", "Polling stopped");
-        notifyListeners("readingStopped", ret);
-        if (call != null) call.resolve(ret);
-    }
 
-    private void sendADH814Request(byte[] request, PluginCall call) {
-        String data = bytesToHex(request, request.length);
-        int command = request[1] & 0xFF;
-        synchronized (this) {
-            if (call != null) {
-                adh814ResponseListeners.put(command, call);
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(RESPONSE_TIMEOUT_MS);
-                        if (adh814ResponseListeners.remove(command, call)) {
-                            call.reject("Response timeout for command 0x" + Integer.toHexString(command));
-                        }
-                    } catch (InterruptedException ignored) {}
-                }).start();
-            }
 
-            if (serialPort != null) {
-                try {
-                    serialPort.getOutputStream().write(request);
-                    serialPort.getOutputStream().flush();
-                    Log.d(TAG, "ADH814 data written to serial: " + data);
-                    if (call != null) {
-                        JSObject ret = new JSObject();
-                        ret.put("message", "Data written successfully to serial");
-                        ret.put("data", data);
-                        notifyListeners("serialWriteSuccess", ret);
-                    }
-                } catch (IOException e) {
-                    if (call != null) {
-                        adh814ResponseListeners.remove(command);
-                        call.reject("Failed to write to serial: " + e.getMessage());
-                    }
-                }
-            } else if (usbSerialPort != null) {
-                try {
-                    usbSerialPort.write(request, 5000);
-                    Log.d(TAG, "ADH814 data written to USB serial: " + data);
-                    if (call != null) {
-                        JSObject ret = new JSObject();
-                        ret.put("message", "Data written successfully to USB serial");
-                        ret.put("data", data);
-                        notifyListeners("usbWriteSuccess", ret);
-                    }
-                } catch (Exception e) {
-                    if (call != null) {
-                        adh814ResponseListeners.remove(command);
-                        call.reject("Failed to write to USB serial: " + e.getMessage());
-                    }
-                }
-            } else {
-                if (call != null) {
-                    adh814ResponseListeners.remove(command);
-                    call.reject("No serial connection open");
-                }
-            }
-        }
-    }
 
-    private byte[] createADH814Request(int address, int command, byte[] data) {
+
+
+
+
+
+
+
+    // ADH814
+
+    private byte[] buildADH814Packet(String command, JSObject params) throws JSONException, InterruptedException {
+        int address = clampToByte(params.getInteger("address", 1));
         if (address < 0x01 || address > 0x04) {
             throw new IllegalArgumentException("Address must be 0x01-0x04");
         }
+        byte[] data;
+        byte cmdByte;
+
+        switch (command.toUpperCase()) {
+            case "A1": // ID
+                cmdByte = (byte) 0xA1;
+                data = new byte[]{};
+                break;
+            case "A3": // POLL
+                cmdByte = (byte) 0xA3;
+                data = new byte[]{};
+                break;
+            case "A4": // TEMP
+                cmdByte = (byte) 0xA4;
+                int mode = clampToByte(params.getInteger("mode", 0x01));
+                if (mode < 0x00 || mode > 0x02) {
+                    throw new IllegalArgumentException("Mode must be 0x00-0x02");
+                }
+                int tempValue = params.getInteger("tempValue", 7);
+                if (tempValue < -127 || tempValue > 127) {
+                    throw new IllegalArgumentException("Temperature value must be -127 to 127");
+                }
+                data = new byte[]{(byte) mode, (byte) ((tempValue >> 8) & 0xFF), (byte) (tempValue & 0xFF)};
+                break;
+            case "A5": // RUN
+                cmdByte = (byte) 0xA5;
+                int motorNumber = clampToByte(params.getInteger("motorNumber", 0));
+                if (motorNumber < 0x00 || motorNumber > 0xFE) {
+                    throw new IllegalArgumentException("Motor number must be 0x00-0xFE");
+                }
+                data = new byte[]{(byte) motorNumber};
+                break;
+            case "A6": // ACK
+                cmdByte = (byte) 0xA6;
+                data = new byte[]{};
+                break;
+            case "B5": // RUN2
+                cmdByte = (byte) 0xB5;
+                int motorNumber1 = clampToByte(params.getInteger("motorNumber1", 0));
+                int motorNumber2 = clampToByte(params.getInteger("motorNumber2", motorNumber1));
+                if (motorNumber1 < 0x00 || motorNumber1 > 0xFE || motorNumber2 < 0x00 || motorNumber2 > 0xFE) {
+                    throw new IllegalArgumentException("Motor numbers must be 0x00-0xFE");
+                }
+                data = new byte[]{(byte) motorNumber1, (byte) motorNumber2};
+                break;
+            case "21": // switchToTwoWireMode
+                cmdByte = (byte) 0x21;
+                data = new byte[]{(byte) 0x10, (byte) 0x00};
+                break;
+            case "35": // setSwap
+                cmdByte = (byte) 0x35;
+                data = new byte[]{(byte) 0x01};
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported command: " + command);
+        }
+
         byte[] payload = new byte[2 + data.length];
         payload[0] = (byte) address;
-        payload[1] = (byte) command;
+        payload[1] = cmdByte;
         System.arraycopy(data, 0, payload, 2, data.length);
-
-        int crc = calculateCRC(payload);
-        byte[] request = new byte[payload.length + 2];
-        System.arraycopy(payload, 0, request, 0, payload.length);
-        request[payload.length] = (byte) (crc & 0xFF); // Low byte
-        request[payload.length + 1] = (byte) ((crc >> 8) & 0xFF); // High byte
-        return request;
+        int crc = calculateCRCRequest(payload);
+        byte[] packet = new byte[payload.length + 2];
+        System.arraycopy(payload, 0, packet, 0, payload.length);
+        packet[payload.length] = (byte) (crc & 0xFF); // Low byte
+        packet[payload.length + 1] = (byte) ((crc >> 8) & 0xFF); // High byte
+        return packet;
     }
 
-    private int calculateCRC(byte[] data) {
+    private int getExpectedResponseLength(String command) {
+        switch (command.toUpperCase()) {
+            case "A1": return 18; // ID
+            case "A3": return 11; // POLL
+            case "A4": return 5;  // TEMP
+            case "A5": return 5;  // RUN
+            case "A6": return 4;  // ACK
+            case "B5": return 5;  // RUN2
+            case "21": return 5;  // switchToTwoWireMode
+            case "35": return 5;  // setSwap
+            default: return 4;    // Minimum length
+        }
+    }
+
+    private JSObject parseADH814Response(byte[] buffer, int expectedLength) {
+        JSObject response = new JSObject();
+        if (buffer.length < 4) {
+            Log.w(TAG, "Response too short: " + buffer.length + " bytes, expected at least 4");
+            response.put("error", "Response too short: " + buffer.length + " bytes");
+            response.put("data", bytesToHex(buffer, buffer.length));
+            return response;
+        }
+
+        int receivedAddress = buffer[0] & 0xFF;
+        int receivedCommand = buffer[1] & 0xFF;
+        byte[] data = Arrays.copyOfRange(buffer, 2, buffer.length - 2);
+        int receivedCRC = ((buffer[buffer.length - 2] & 0xFF) << 8) | (buffer[buffer.length - 1] & 0xFF);
+        byte[] crcData = Arrays.copyOfRange(buffer, 0, buffer.length - 2);
+        int calculatedCRC = calculateCRCResponse(crcData);
+
+        if (receivedCRC != calculatedCRC) {
+            Log.w(TAG, "CRC mismatch: received 0x" + String.format("%04x", receivedCRC) +
+                    ", calculated 0x" + String.format("%04x", calculatedCRC));
+            response.put("warning", response.has("warning") ?
+                    response.getString("warning") + "; CRC mismatch" : "CRC mismatch");
+        }
+
+        if (receivedAddress != 0x00 && (receivedCommand != 0xA1 || receivedAddress != 0x01)) {
+            Log.w(TAG, "Unexpected address: got 0x" + String.format("%02x", receivedAddress) +
+                    ", expected 0x00 or 0x01 for A1");
+            response.put("warning", response.has("warning") ?
+                    response.getString("warning") + "; Unexpected address" : "Unexpected address");
+        }
+
+        response.put("address", receivedAddress);
+        response.put("command", String.format("%02X", receivedCommand));
+        response.put("data", bytesToHex(data, data.length));
+
+        if (receivedCommand == 0xA1) { // ID
+            String idString = new String(data, 0, Math.min(data.length, 16)).trim();
+            response.put("idString", idString);
+        } else if (receivedCommand == 0xA3) { // POLL
+            JSObject statusDetails = new JSObject();
+            statusDetails.put("status", data.length > 0 ? (data[0] & 0xFF) : 0);
+            statusDetails.put("motorNumber", data.length > 1 ? (data[1] & 0xFF) : 0);
+            statusDetails.put("faultCode", data.length > 2 ? (data[2] & 0x03) : 0);
+            statusDetails.put("dropSuccess", data.length > 2 ? ((data[2] & 0x04) == 0) : true);
+            statusDetails.put("maxCurrent", data.length > 4 ? ((data[3] & 0xFF) << 8) | (data[4] & 0xFF) : 0);
+            statusDetails.put("avgCurrent", data.length > 6 ? ((data[5] & 0xFF) << 8) | (data[6] & 0xFF) : 0);
+            statusDetails.put("runTime", data.length > 7 ? (data[7] & 0xFF) : 0);
+            int temperature = data.length > 8 ? data[8] : 0;
+            statusDetails.put("temperature", temperature);
+            if (temperature == -40 || temperature == 120) {
+                Log.w(TAG, "Temperature sensor issue: " + (temperature == -40 ? "Disconnected" : "Shorted"));
+                response.put("warning", response.has("warning") ?
+                        response.getString("warning") + "; Temperature sensor issue" : "Temperature sensor issue");
+            }
+            response.put("statusDetails", statusDetails);
+        } else if (receivedCommand == 0xA5 || receivedCommand == 0xB5 || receivedCommand == 0x21 || receivedCommand == 0x35) { // RUN, RUN2, switchToTwoWireMode, setSwap
+            response.put("executionStatus", data.length > 0 ? (data[0] & 0xFF) : 0);
+            if (receivedCommand == 0x35) {
+                response.put("swapStatus", (data.length > 0 && data[0] == 0x01) ? "Swap set successfully" : "Swap set failed");
+            }
+        }
+
+        response.put("crc", String.format("%04X", receivedCRC));
+        return response;
+    }
+
+    private void startProcessingQueueADH814() {
+
+        isProcessingQueue = true;
+        new Thread(() -> {
+            while (isProcessingQueue && isReading) {
+                synchronized (this) {
+                    if (serialPort == null) {
+                        Log.w(TAG, "Serial port closed, stopping queue processing");
+                        isProcessingQueue = false;
+                        break;
+                    }
+                    try {
+                        synchronized (commandQueue) {
+                            if (!commandQueue.isEmpty()) {
+                                byte[] command = commandQueue.peek();
+                                String commandHex = bytesToHex(command, command.length);
+                                Log.d(TAG, "Sending queued command: " + commandHex);
+                                serialPort.getOutputStream().write(command);
+                                serialPort.getOutputStream().flush();
+                                notifyListeners("serialWriteSuccess", new JSObject().put("data", commandHex));
+                                Thread.sleep(1000); // Wait 1s for response
+                            }
+                        }
+                    } catch (IOException e) {
+                        Log.e(TAG, "Queue processing error: " + e.getMessage());
+                    } catch (Exception e) {
+                        Log.e(TAG, "Unexpected error in queue processing: " + e.getMessage());
+                    }
+                }
+                try {
+                    Thread.sleep(50); // 50ms loop interval
+                } catch (InterruptedException e) {
+                    Log.w(TAG, "Queue processing interrupted: " + e.getMessage());
+                    isProcessingQueue = false;
+                    break;
+                }
+            }
+            isProcessingQueue = false;
+        }).start();
+    }
+
+    @PluginMethod
+    public void writeADH814(PluginCall call) {
+        Log.d(TAG, "write invoked: " + call.getData().toString());
+        String data = call.getString("data");
+        if (data == null) {
+            call.reject("Data required");
+            return;
+        }
+
+        try {
+            JSObject jsonData = new JSObject(data);
+            String command = jsonData.getString("command");
+            JSObject params = jsonData.getJSObject("params", new JSObject());
+            if (command == null) {
+                call.reject("Command name required in data");
+                return;
+            }
+
+            byte[] packet;
+            int retries = params.getInteger("retries", 1); // Default to 1 for non-setSwap commands
+            if (command.equalsIgnoreCase("35")) { // setSwap with retries
+                for (int attempt = 1; attempt <= retries; attempt++) {
+                    try {
+                        packet = buildADH814Packet(command, params);
+                        synchronized (commandQueue) {
+                            commandQueue.add(packet);
+                            expectedResponseLengths.put(bytesToHex(packet, packet.length), getExpectedResponseLength(command));
+                            Log.d(TAG, "Queued ADH814 command (attempt " + attempt + "): " + bytesToHex(packet, packet.length));
+                        }
+                        JSObject ret = new JSObject();
+                        ret.put("message", "ADH814 command queued (attempt " + attempt + ")");
+                        ret.put("data", bytesToHex(packet, packet.length));
+                        notifyListeners("commandQueued", ret);
+                        if (!isProcessingQueue) {
+                            startProcessingQueueADH814();
+                        }
+                        call.resolve(ret);
+                        return;
+                    } catch (Exception e) {
+                        Log.w(TAG, "setSwap attempt " + attempt + " failed: " + e.getMessage());
+                        if (attempt == retries) {
+                            call.reject("Failed to queue setSwap after " + retries + " attempts: " + e.getMessage());
+                            return;
+                        }
+                        Thread.sleep(500);
+                    }
+                }
+            } else {
+                packet = buildADH814Packet(command, params);
+                synchronized (commandQueue) {
+                    commandQueue.add(packet);
+                    expectedResponseLengths.put(bytesToHex(packet, packet.length), getExpectedResponseLength(command));
+                    Log.d(TAG, "Queued ADH814 command: " + bytesToHex(packet, packet.length));
+                }
+                JSObject ret = new JSObject();
+                ret.put("message", "ADH814 command queued");
+                ret.put("data", bytesToHex(packet, packet.length));
+                notifyListeners("commandQueued", ret);
+                if (!isProcessingQueue) {
+                    startProcessingQueueADH814();
+                }
+
+                call.resolve(ret);
+            }
+        } catch (Exception e) {
+            call.reject("Failed to parse data or build packet: " + e.getMessage());
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    @PluginMethod
+    public void startReadingADH814(PluginCall call) {
+        Log.d(TAG, "startReading invoked: " + call.getData().toString());
+        if (serialPort == null) {
+            call.reject("No serial connection open");
+            return;
+        }
+
+        try {
+            serialPort.getInputStream().skip(serialPort.getInputStream().available()); // Clear input buffer
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to clear input buffer: " + e.getMessage());
+        }
+
+        isReading = true;
+        JSObject ret = new JSObject();
+        ret.put("message", "ADH814 reading started");
+        notifyListeners("readingStarted", ret);
+        call.resolve(ret);
+
+        new Thread(() -> {
+            byte[] buffer = new byte[1024];
+            ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
+
+            while (isReading) {
+                synchronized (this) {
+                    if (serialPort == null) {
+                        Log.w(TAG, "Serial port closed, stopping read thread");
+                        break;
+                    }
+                    try {
+                        int available = serialPort.getInputStream().available();
+//            Log.d(TAG, "Bytes available: " + available);
+                        if (available > 0) {
+                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                            if (len > 0) {
+                                Log.d(TAG, "Read " + len + " bytes: " + bytesToHex(buffer, len));
+                                packetBuffer.write(buffer, 0, len);
+                                byte[] accumulated = packetBuffer.toByteArray();
+                                int start = 0;
+
+                                while (start < accumulated.length) {
+                                    if (accumulated.length - start < 4) {
+                                        Log.d(TAG, "Partial packet, waiting for more data: " + bytesToHex(accumulated, accumulated.length));
+                                        break; // Minimum frame length
+                                    }
+
+                                    // Find valid start byte (0x00 or 0x01 for A1)
+                                    int validStart = start;
+                                    while (validStart < accumulated.length &&
+                                            accumulated[validStart] != 0x00 &&
+                                            !(accumulated[validStart] == 0x01 && validStart + 1 < accumulated.length && accumulated[validStart + 1] == (byte) 0xA1)) {
+                                        Log.w(TAG, "Skipping invalid byte at position " + validStart + ": " + String.format("%02x", accumulated[validStart]));
+                                        validStart++;
+                                    }
+
+                                    if (validStart >= accumulated.length) {
+                                        Log.d(TAG, "No valid start byte found, discarding buffer: " + bytesToHex(accumulated, accumulated.length));
+                                        packetBuffer.reset();
+                                        break;
+                                    }
+
+                                    start = validStart;
+                                    int expectedLength = commandQueue.isEmpty() ? 4 :
+                                            expectedResponseLengths.getOrDefault(bytesToHex(commandQueue.peek(), commandQueue.peek().length), 4);
+
+                                    if (start + expectedLength > accumulated.length) {
+                                        Log.d(TAG, "Incomplete packet, need " + expectedLength + " bytes, have " + (accumulated.length - start));
+                                        break;
+                                    }
+
+                                    byte[] packet = new byte[expectedLength];
+                                    System.arraycopy(accumulated, start, packet, 0, expectedLength);
+                                    String packetHex = bytesToHex(packet, packet.length);
+
+                                    JSObject response = parseADH814Response(packet, expectedLength);
+                                    Log.d(TAG, "Response received: " + packetHex);
+                                    notifyListeners("dataReceived", response);
+
+                                    synchronized (commandQueue) {
+                                        if (!commandQueue.isEmpty()) {
+                                            byte[] sentCommand = commandQueue.peek();
+                                            int sentCommandCode = sentCommand[1] & 0xFF;
+                                            int receivedCommandCode = packet[1] & 0xFF;
+                                            Log.d(TAG, "sentCommandCode: " + sentCommandCode+" receivedCommandCode "+receivedCommandCode );
+
+                                            if (sentCommandCode == receivedCommandCode) {
+                                                commandQueue.poll();
+                                                expectedResponseLengths.remove(bytesToHex(sentCommand, sentCommand.length));
+
+                                                if (receivedCommandCode == 0xA3 && response.has("statusDetails") &&
+                                                        response.getJSObject("statusDetails").getInteger("status") == 2
+                                                        ||
+                                                        receivedCommandCode!=0xA6
+                                                ) {
+                                                    byte[] ackPacket = buildADH814Packet("A6", new JSObject().put("address", sentCommand[0] & 0xFF));
+                                                    commandQueue.add(ackPacket);
+                                                    expectedResponseLengths.put(bytesToHex(ackPacket, ackPacket.length), 4);
+                                                    Log.d(TAG, "Queued ACK command: " + bytesToHex(ackPacket, ackPacket.length));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    start += expectedLength;
+                                }
+
+                                int remaining = accumulated.length - start;
+                                if (remaining > 0) {
+                                    byte[] remainder = new byte[remaining];
+                                    System.arraycopy(accumulated, start, remainder, 0, remaining);
+                                    packetBuffer.reset();
+                                    packetBuffer.write(remainder);
+                                    Log.d(TAG, "Stored " + remaining + " remaining bytes: " + bytesToHex(remainder, remaining));
+                                } else {
+                                    packetBuffer.reset();
+                                }
+                            }
+                        } else {
+                            Thread.sleep(50); // 50ms sleep as per requirement
+                        }
+                    } catch (Exception e) {
+                        if (isReading) Log.e(TAG, "ADH814 read error: " + e.getMessage());
+                    }
+                }
+            }
+        }).start();
+    }
+    // CRC calculations as provided
+    public static int calculateCRCResponse(byte[] data) {
         int crc = 0xFFFF;
         for (byte b : data) {
-            int index = (crc >> 8) ^ (b & 0xFF);
-            crc = ((crc ^ CRC_TABLE[index]) & 0x00FF) | ((CRC_TABLE[index] >> 8) << 8);
+            crc ^= (b & 0xFF);
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x0001) != 0) {
+                    crc = (crc >> 1) ^ 0xA001;
+                } else {
+                    crc >>= 1;
+                }
+            }
         }
-        return (crc >> 8) | (crc << 8);
+        return ((crc & 0xFF) << 8) | ((crc >> 8) & 0xFF);
     }
 
-    private void processADH814Response(byte[] buffer) {
-        try {
-            if (buffer.length < 4) {
-                Log.w(TAG, "Invalid ADH814 response length: " + buffer.length);
-                return;
+    public static int calculateCRCRequest(byte[] data) {
+        int crc = 0xFFFF;
+        for (byte b : data) {
+            crc ^= (b & 0xFF);
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x0001) != 0) {
+                    crc = (crc >> 1) ^ 0xA001;
+                } else {
+                    crc >>= 1;
+                }
             }
-            int address = buffer[0] & 0xFF;
-            int command = buffer[1] & 0xFF;
-            byte[] data = Arrays.copyOfRange(buffer, 2, buffer.length - 2);
-            int receivedCRC = ((buffer[buffer.length - 1] & 0xFF) << 8) | (buffer[buffer.length - 2] & 0xFF);
-
-            byte[] payload = Arrays.copyOfRange(buffer, 0, buffer.length - 2);
-            int calculatedCRC = calculateCRC(payload);
-            if (receivedCRC != calculatedCRC) {
-                Log.w(TAG, "ADH814 CRC validation failed: received 0x" + Integer.toHexString(receivedCRC) +
-                        ", calculated 0x" + Integer.toHexString(calculatedCRC));
-                return;
-            }
-
-            if (!Arrays.asList(0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xB5, 0x34, 0x35, 0x21).contains(command)) {
-                Log.w(TAG, "Invalid ADH814 command: 0x" + Integer.toHexString(command));
-                return;
-            }
-
-            // Validate address: 0xA1 expects 0x01-0x04, others expect 0x00
-            if (command == 0xA1 && (address < 0x01 || address > 0x04)) {
-                Log.w(TAG, "Invalid address for ID command 0xA1: expected 0x01-0x04, got 0x" + Integer.toHexString(address));
-                return;
-            } else if (command != 0xA1 && address != 0x00) {
-                Log.w(TAG, "Invalid address for command 0x" + Integer.toHexString(command) +
-                        ": expected 0x00, got 0x" + Integer.toHexString(address));
-                return;
-            }
-
-            JSObject response = new JSObject();
-            response.put("address", address);
-            response.put("command", command);
-            response.put("data", bytesToHex(data, data.length));
-
-            switch (command) {
-                case 0xA1: // ID
-                    if (data.length >= 16) {
-                        StringBuilder firmware = new StringBuilder();
-                        for (int i = 0; i < 16; i++) {
-                            firmware.append((char) (data[i] & 0xFF));
-                        }
-                        response.put("firmware", firmware.toString().trim());
-                    }
-                    break;
-                case 0xA2: // SCAN
-                    if (data.length >= 18) {
-                        JSObject doorFeedback = new JSObject();
-                        for (int i = 0; i < 18; i++) {
-                            doorFeedback.put("byte" + i, data[i] & 0xFF);
-                        }
-                        response.put("doorFeedback", doorFeedback);
-                    }
-                    break;
-                case 0xA3: // POLL
-                    if (data.length >= 9) {
-                        int status = data[0] & 0xFF;
-                        int executionResult = data[2] & 0xFF;
-                        response.put("status", status);
-                        response.put("motorNumber", data[1] & 0xFF);
-                        response.put("executionResult", executionResult);
-                        response.put("dropSuccess", (executionResult & 0x04) == 0);
-                        response.put("faultCode", executionResult & 0x03);
-                        response.put("maxCurrent", (data[3] << 8) | (data[4] & 0xFF));
-                        response.put("avgCurrent", (data[5] << 8) | (data[6] & 0xFF));
-                        response.put("runTime", data[7] & 0xFF);
-                        response.put("temperature", data[8] > 127 ? (data[8] - 256) : data[8]);
-                        if (data[8] == -40) {
-                            response.put("message", "Temperature sensor disconnected");
-                        } else if (data[8] == 120) {
-                            response.put("message", "Temperature sensor shorted");
-                        }
-                    }
-                    break;
-                case 0xA4: // TEMP
-                    if (data.length >= 3) {
-                        response.put("mode", data[0] & 0xFF);
-                        response.put("tempValue", (data[1] << 8) | (data[2] & 0xFF));
-                    }
-                    break;
-                case 0xA5: // RUN (shippingcontrol)
-                case 0xB5: // RUN2 (shippingcontrol combined)
-                    if (data.length >= 1) {
-                        int executionStatus = data[0] & 0xFF;
-                        response.put("executionStatus", executionStatus);
-                        if (executionStatus != 0) {
-                            response.put("error", true);
-                            response.put("message", getExecutionErrorMessage(executionStatus));
-                        }
-                    }
-                    break;
-                case 0xA6: // ACK
-                    response.put("message", "Result acknowledged");
-                    break;
-                case 0x34: // querySwap
-                    if (data.length >= 1) {
-                        response.put("swapEnabled", data[0] & 0xFF); // 0x01 enabled, 0x00 disabled
-                    }
-                    break;
-                case 0x35: // setSwap
-                    if (data.length >= 1) {
-                        response.put("swapEnabled", data[0] & 0xFF); // Confirm setting
-                    }
-                    break;
-                case 0x21: // switchToTwoWireMode
-                    if (data.length >= 2) {
-                        response.put("mode", data[0] & 0xFF);
-                        response.put("status", data[1] & 0xFF);
-                    }
-                    break;
-            }
-
-            PluginCall call = adh814ResponseListeners.remove(command);
-            if (call != null) {
-                call.resolve(response);
-            }
-            notifyListeners("adh814Response", response);
-        } catch (Exception e) {
-            Log.e(TAG, "Error processing ADH814 response: " + e.getMessage());
-            JSObject errorResponse = new JSObject();
-            errorResponse.put("error", true);
-            errorResponse.put("message", e.getMessage());
-            notifyListeners("adh814Response", errorResponse);
         }
+        return crc;
     }
-
-    private String getExecutionErrorMessage(int status) {
-        switch (status) {
-            case 1: return "Invalid motor index";
-            case 2: return "Another motor is running";
-            case 3: return "Previous motor result not cleared";
-            default: return "Unknown error";
-        }
-    }
-
+    private final Map<String, Integer> expectedResponseLengths = new ConcurrentHashMap<>();
+    private volatile boolean isProcessingQueue = false;
     //ADH814
 }

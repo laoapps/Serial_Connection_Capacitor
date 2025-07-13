@@ -9,7 +9,7 @@ export interface SerialPortOptions {
    */
   portName: string;
 
-  /**
+  /** a
    * Baud rate for the serial port connection.
    */
   baudRate: number;
@@ -116,6 +116,12 @@ export interface SerialPortPlugin {
    */
   writeVMC(options: SerialPortWriteOptions): Promise<any>;
 
+    /**
+   * Writes data to the serial port for VMC.
+   * @param options Write options containing the command to send.
+   */
+  writeADH814(options: SerialPortWriteOptions): Promise<any>;
+
   /**
    * Writes data to the serial port for ESSP.
    * @param options Write options containing the command to send.
@@ -133,6 +139,11 @@ export interface SerialPortPlugin {
    * @returns Promise that resolves when reading starts.
    */
   startReadingVMC(): Promise<any>;
+   /**
+   * Starts reading data from the serial port for VMC.
+   * @returns Promise that resolves when reading starts.
+   */
+  startReadingADH814(): Promise<any>;
 
   /**
    * Starts reading ESSP data from the serial port.

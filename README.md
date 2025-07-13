@@ -76,9 +76,11 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`openSerialEssp(...)`](#openserialessp)
 * [`write(...)`](#write)
 * [`writeVMC(...)`](#writevmc)
+* [`writeADH814(...)`](#writeadh814)
 * [`writeEssp(...)`](#writeessp)
 * [`startReading()`](#startreading)
 * [`startReadingVMC()`](#startreadingvmc)
+* [`startReadingADH814()`](#startreadingadh814)
 * [`startReadingEssp()`](#startreadingessp)
 * [`stopReading()`](#stopreading)
 * [`close()`](#close)
@@ -203,6 +205,23 @@ Writes data to the serial port for VMC.
 --------------------
 
 
+### writeADH814(...)
+
+```typescript
+writeADH814(options: SerialPortWriteOptions) => Promise<any>
+```
+
+Writes data to the serial port for VMC.
+
+| Param         | Type                                                                      | Description                                   |
+| ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
+| **`options`** | <code><a href="#serialportwriteoptions">SerialPortWriteOptions</a></code> | Write options containing the command to send. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
 ### writeEssp(...)
 
 ```typescript
@@ -237,6 +256,19 @@ Starts reading data from the serial port.
 
 ```typescript
 startReadingVMC() => Promise<any>
+```
+
+Starts reading data from the serial port for VMC.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startReadingADH814()
+
+```typescript
+startReadingADH814() => Promise<any>
 ```
 
 Starts reading data from the serial port for VMC.
@@ -522,7 +554,7 @@ Options for opening a serial port connection.
 | Prop             | Type                | Description                                               |
 | ---------------- | ------------------- | --------------------------------------------------------- |
 | **`portName`**   | <code>string</code> | Path to the serial port (e.g., `/dev/ttyUSB0` or `COM3`). |
-| **`baudRate`**   | <code>number</code> | Baud rate for the serial port connection.                 |
+| **`baudRate`**   | <code>number</code> | a Baud rate for the serial port connection.               |
 | **`dataBits`**   | <code>number</code> |                                                           |
 | **`stopBits`**   | <code>number</code> |                                                           |
 | **`parity`**     | <code>string</code> |                                                           |
