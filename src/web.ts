@@ -44,6 +44,10 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
     console.log('writeVMC', _options);
     throw new Error('writeVMC is not supported on the web platform.');
   }
+  async writeMT102(_options: SerialPortWriteOptions): Promise<any> {
+    console.log('writeMT102', _options);
+    throw new Error('writeMT102 is not supported on the web platform.');
+  }
    async writeADH814(_options: SerialPortWriteOptions): Promise<any> {
     console.log('writeVMC', _options);
     throw new Error('writeVMC is not supported on the web platform.');
@@ -67,6 +71,10 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
   async startReadingVMC(): Promise<any> {
     console.log('startReadingVMC');
     throw new Error('startReadingVMC is not supported on the web platform.');
+  }
+  async startReadingMT102(): Promise<any> {
+    console.log('startReadingMT102');
+    throw new Error('startReadingMT102 is not supported on the web platform.');
   }
   async startReadingADH814(): Promise<any> {
     console.log('startReadingVMC');

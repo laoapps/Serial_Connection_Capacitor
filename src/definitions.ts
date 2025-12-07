@@ -115,6 +115,12 @@ export interface SerialPortPlugin {
    * @param options Write options containing the command to send.
    */
   writeVMC(options: SerialPortWriteOptions): Promise<any>;
+  /**
+   * Writes data to the serial port for VMC.
+   * @param options Write options containing the command to send.
+   */
+  writeMT102(options: SerialPortWriteOptions): Promise<any>;
+
 
     /**
    * Writes data to the serial port for VMC.
@@ -139,6 +145,11 @@ export interface SerialPortPlugin {
    * @returns Promise that resolves when reading starts.
    */
   startReadingVMC(): Promise<any>;
+  /**
+   * Starts reading data from the serial port for VMC.
+   * @returns Promise that resolves when reading starts.
+   */
+  startReadingMT102(): Promise<any>;
    /**
    * Starts reading data from the serial port for VMC.
    * @returns Promise that resolves when reading starts.

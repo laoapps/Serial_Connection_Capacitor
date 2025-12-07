@@ -76,10 +76,12 @@ serialConnectionCapacitor.addEvent('connectionClosed', (event) => {
 * [`openSerialEssp(...)`](#openserialessp)
 * [`write(...)`](#write)
 * [`writeVMC(...)`](#writevmc)
+* [`writeMT102(...)`](#writemt102)
 * [`writeADH814(...)`](#writeadh814)
 * [`writeEssp(...)`](#writeessp)
 * [`startReading()`](#startreading)
 * [`startReadingVMC()`](#startreadingvmc)
+* [`startReadingMT102()`](#startreadingmt102)
 * [`startReadingADH814()`](#startreadingadh814)
 * [`startReadingEssp()`](#startreadingessp)
 * [`stopReading()`](#stopreading)
@@ -205,6 +207,23 @@ Writes data to the serial port for VMC.
 --------------------
 
 
+### writeMT102(...)
+
+```typescript
+writeMT102(options: SerialPortWriteOptions) => Promise<any>
+```
+
+Writes data to the serial port for VMC.
+
+| Param         | Type                                                                      | Description                                   |
+| ------------- | ------------------------------------------------------------------------- | --------------------------------------------- |
+| **`options`** | <code><a href="#serialportwriteoptions">SerialPortWriteOptions</a></code> | Write options containing the command to send. |
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
 ### writeADH814(...)
 
 ```typescript
@@ -256,6 +275,19 @@ Starts reading data from the serial port.
 
 ```typescript
 startReadingVMC() => Promise<any>
+```
+
+Starts reading data from the serial port for VMC.
+
+**Returns:** <code>Promise&lt;any&gt;</code>
+
+--------------------
+
+
+### startReadingMT102()
+
+```typescript
+startReadingMT102() => Promise<any>
 ```
 
 Starts reading data from the serial port for VMC.

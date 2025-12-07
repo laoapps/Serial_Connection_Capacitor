@@ -644,7 +644,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                 }
                             }
                         }
-                        Thread.sleep(50);
+                        Thread.sleep(10);
                     } catch (Exception e) {
                         if (isReading) Log.e(TAG, "VMC read error: " + e.getMessage());
                     }
@@ -695,7 +695,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                 }
                             }
                         } else {
-                            Thread.sleep(50);
+                            Thread.sleep(10);
                         }
                     } catch (Exception e) {
                         if (isReading) Log.e(TAG, "Serial read error: " + e.getMessage());
@@ -904,119 +904,13 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             default: return 4;    // Minimum length
         }
     }
-
-    private JSObject parseADH814Response(byte[] buffer, int expectedLength) {
-        JSObject response = new JSObject();
-        if (buffer.length < 4) {
-            Log.w(TAG, "Response too short: " + buffer.length + " bytes, expected at least 4");
-            response.put("error", "Response too short: " + buffer.length + " bytes");
-            response.put("data", bytesToHex(buffer, buffer.length));
-            return response;
-        }
-
-        int receivedAddress = buffer[0] & 0xFF;
-        int receivedCommand = buffer[1] & 0xFF;
-        byte[] data = Arrays.copyOfRange(buffer, 2, buffer.length - 2);
-        int receivedCRC = ((buffer[buffer.length - 2] & 0xFF) << 8) | (buffer[buffer.length - 1] & 0xFF);
-        byte[] crcData = Arrays.copyOfRange(buffer, 0, buffer.length - 2);
-        int calculatedCRC = calculateCRCResponse(crcData);
-
-        if (receivedCRC != calculatedCRC) {
-            Log.w(TAG, "CRC mismatch: received 0x" + String.format("%04x", receivedCRC) +
-                    ", calculated 0x" + String.format("%04x", calculatedCRC));
-            response.put("warning", response.has("warning") ?
-                    response.getString("warning") + "; CRC mismatch" : "CRC mismatch");
-        }
-
-        if (receivedAddress != 0x00 && (receivedCommand != 0xA1 || receivedAddress != 0x01)) {
-            Log.w(TAG, "Unexpected address: got 0x" + String.format("%02x", receivedAddress) +
-                    ", expected 0x00 or 0x01 for A1");
-            response.put("warning", response.has("warning") ?
-                    response.getString("warning") + "; Unexpected address" : "Unexpected address");
-        }
-
-        response.put("address", receivedAddress);
-        response.put("command", String.format("%02X", receivedCommand));
-        response.put("data", bytesToHex(data, data.length));
-
-        if (receivedCommand == 0xA1) { // ID
-            String idString = new String(data, 0, Math.min(data.length, 16)).trim();
-            response.put("idString", idString);
-        } else if (receivedCommand == 0xA3) { // POLL
-            JSObject statusDetails = new JSObject();
-            statusDetails.put("status", data.length > 0 ? (data[0] & 0xFF) : 0);
-            statusDetails.put("motorNumber", data.length > 1 ? (data[1] & 0xFF) : 0);
-            statusDetails.put("faultCode", data.length > 2 ? (data[2] & 0x03) : 0);
-            statusDetails.put("dropSuccess", data.length > 2 ? ((data[2] & 0x04) == 0) : true);
-            statusDetails.put("maxCurrent", data.length > 4 ? ((data[3] & 0xFF) << 8) | (data[4] & 0xFF) : 0);
-            statusDetails.put("avgCurrent", data.length > 6 ? ((data[5] & 0xFF) << 8) | (data[6] & 0xFF) : 0);
-            statusDetails.put("runTime", data.length > 7 ? (data[7] & 0xFF) : 0);
-            int temperature = data.length > 8 ? data[8] : 0;
-            statusDetails.put("temperature", temperature);
-            if (temperature == -40 || temperature == 120) {
-                Log.w(TAG, "Temperature sensor issue: " + (temperature == -40 ? "Disconnected" : "Shorted"));
-                response.put("warning", response.has("warning") ?
-                        response.getString("warning") + "; Temperature sensor issue" : "Temperature sensor issue");
-            }
-            response.put("statusDetails", statusDetails);
-        } else if (receivedCommand == 0xA5 || receivedCommand == 0xB5 || receivedCommand == 0x21 || receivedCommand == 0x35) { // RUN, RUN2, switchToTwoWireMode, setSwap
-            response.put("executionStatus", data.length > 0 ? (data[0] & 0xFF) : 0);
-            if (receivedCommand == 0x35) {
-                response.put("swapStatus", (data.length > 0 && data[0] == 0x01) ? "Swap set successfully" : "Swap set failed");
-            }
-        }
-
-        response.put("crc", String.format("%04X", receivedCRC));
-        return response;
-    }
-
-    private void startProcessingQueueADH814() {
-        if (isProcessingQueue) {
-            Log.d(TAG, "Queue processing already running");
-            return;
-        }
-        isProcessingQueue = true;
-        new Thread(() -> {
-            while (isProcessingQueue && isReading) {
-                synchronized (this) {
-                    if (serialPort == null) {
-                        Log.w(TAG, "Serial port closed, stopping queue processing");
-                        isProcessingQueue = false;
-                        break;
-                    }
-                    try {
-                        synchronized (commandQueue) {
-                            if (!commandQueue.isEmpty()) {
-                                byte[] command = commandQueue.peek();
-                                String commandHex = bytesToHex(command, command.length);
-                                Log.d(TAG, "Sending queued command: " + commandHex);
-                                serialPort.getOutputStream().write(command);
-                                serialPort.getOutputStream().flush();
-                                notifyListeners("serialWriteSuccess", new JSObject().put("data", commandHex));
-                                Thread.sleep(500); // Wait 1s for response
-                            }
-                        }
-                    } catch (IOException e) {
-                        Log.e(TAG, "Queue processing error: " + e.getMessage());
-                    } catch (Exception e) {
-                        Log.e(TAG, "Unexpected error in queue processing: " + e.getMessage());
-                    }
-                }
-                try {
-                    Thread.sleep(10); // 50ms loop interval
-                } catch (InterruptedException e) {
-                    Log.w(TAG, "Queue processing interrupted: " + e.getMessage());
-                    isProcessingQueue = false;
-                    break;
-                }
-            }
-            isProcessingQueue = false;
-        }).start();
-    }
+    // Add these class variables for ADH814
+    private volatile boolean isProcessingADH814 = false;
+    private volatile int adh814CurrentStatus = 0; // 0=idle, 1=delivering, 2=delivery end
 
     @PluginMethod
     public void writeADH814(PluginCall call) {
-        Log.d(TAG, "write invoked ADH814: " + call.getData().toString());
+        Log.d(TAG, "writeADH814 invoked: " + call.getData().toString());
         String data = call.getString("data");
         if (data == null) {
             call.reject("Data required");
@@ -1032,66 +926,123 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 return;
             }
 
-            byte[] packet;
-            int retries = params.getInteger("retries", 1); // Default to 1 for non-setSwap commands
-            if (command.equalsIgnoreCase("35")) { // setSwap with retries
-                for (int attempt = 1; attempt <= retries; attempt++) {
-                    try {
-                        packet = buildADH814Packet(command, params);
-                        synchronized (commandQueue) {
-                            commandQueue.add(packet);
-                            expectedResponseLengths.put(bytesToHex(packet, packet.length), getExpectedResponseLength(command));
-                            Log.d(TAG, "Queued ADH814 command (attempt " + attempt + "): " + bytesToHex(packet, packet.length));
-                        }
-                        JSObject ret = new JSObject();
-                        ret.put("message", "ADH814 command queued (attempt " + attempt + ")");
-                        ret.put("data", bytesToHex(packet, packet.length));
-                        notifyListeners("commandQueued", ret);
+            byte[] packet = buildADH814Packet(command, params);
 
-                        startProcessingQueueADH814();
-
-                        call.resolve(ret);
-                        return;
-                    } catch (Exception e) {
-                        Log.w(TAG, "setSwap attempt " + attempt + " failed: " + e.getMessage());
-                        if (attempt == retries) {
-                            call.reject("Failed to queue setSwap after " + retries + " attempts: " + e.getMessage());
-                            return;
-                        }
-                        Thread.sleep(500);
-                    }
-                }
-            } else {
-                packet = buildADH814Packet(command, params);
-                synchronized (commandQueue) {
-                    commandQueue.add(packet);
-                    expectedResponseLengths.put(bytesToHex(packet, packet.length), getExpectedResponseLength(command));
-                    Log.d(TAG, "Queued ADH814 command: " + bytesToHex(packet, packet.length));
-                }
-                JSObject ret = new JSObject();
-                ret.put("message", "ADH814 command queued");
-                ret.put("data", bytesToHex(packet, packet.length));
-                notifyListeners("commandQueued", ret);
-                startProcessingQueueADH814();
-
-                call.resolve(ret);
+            synchronized (commandQueue) {
+                commandQueue.add(packet);
+                Log.d(TAG, "Queued ADH814 command: " + bytesToHex(packet, packet.length));
             }
+
+            // Start processing if not already running
+            if (!isProcessingADH814) {
+                startADH814CommandProcessing();
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("message", "ADH814 command queued");
+            ret.put("data", bytesToHex(packet, packet.length));
+            notifyListeners("commandQueued", ret);
+            call.resolve(ret);
+
         } catch (Exception e) {
-            call.reject("Failed to parse data or build packet: " + e.getMessage());
+            call.reject("Failed to parse data or build ADH814 packet: " + e.getMessage());
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void startADH814CommandProcessing() {
+        if (isProcessingADH814) {
+            return;
+        }
+
+        isProcessingADH814 = true;
+        new Thread(() -> {
+            Log.d(TAG, "ADH814 command processor started");
+
+            while (isProcessingADH814 && isReading) {
+                synchronized (this) {
+                    if (serialPort == null) {
+                        Log.w(TAG, "Serial port closed, stopping ADH814 processor");
+                        isProcessingADH814 = false;
+                        break;
+                    }
+
+                    try {
+                        synchronized (commandQueue) {
+                            if (!commandQueue.isEmpty()) {
+                                byte[] command = commandQueue.peek();
+                                if (command != null && command.length >= 2) {
+                                    int commandCode = command[1] & 0xFF;
+
+                                    // Check if we can send RUN command based on current status
+                                    if (commandCode == 0xA5 && adh814CurrentStatus != 0) {
+                                        Log.d(TAG, "Cannot send RUN command - motor status: " + adh814CurrentStatus);
+                                        continue; // Skip RUN command if not idle
+                                    }
+
+                                    // Send the command
+                                    String cmdHex = bytesToHex(command, command.length);
+                                    Log.d(TAG, "Sending ADH814 command: " + cmdHex);
+                                    serialPort.getOutputStream().write(command);
+                                    serialPort.getOutputStream().flush();
+
+                                    JSObject writeEvent = new JSObject();
+                                    writeEvent.put("data", cmdHex);
+                                    writeEvent.put("command", String.format("%02X", commandCode));
+                                    notifyListeners("serialWriteSuccess", writeEvent);
+
+                                    // Wait for response based on command type
+                                    if (commandCode == 0xA5) { // RUN command
+                                        Thread.sleep(1000); // Wait longer for RUN
+                                    } else {
+                                        Thread.sleep(200); // Wait for other commands
+                                    }
+                                }
+                            } else {
+                                // Queue is empty, send periodic POLL
+                                if (adh814CurrentStatus != 0) { // Only poll if not idle
+                                    byte[] pollCommand = buildADH814Packet("A3", new JSObject());
+                                    commandQueue.add(pollCommand);
+                                    Log.d(TAG, "Queued periodic POLL command");
+                                }
+                            }
+                        }
+                    } catch (IOException e) {
+                        Log.e(TAG, "Error sending ADH814 command: " + e.getMessage());
+                    } catch (InterruptedException e) {
+                        Log.w(TAG, "ADH814 processor interrupted");
+                        break;
+                    } catch (Exception e) {
+                        Log.e(TAG, "Unexpected error in ADH814 processor: " + e.getMessage());
+                    }
+                }
+
+                try {
+                    Thread.sleep(50); // Main loop delay
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+
+            isProcessingADH814 = false;
+            Log.d(TAG, "ADH814 command processor stopped");
+        }).start();
+    }
+
     @PluginMethod
     public void startReadingADH814(PluginCall call) {
-        Log.d(TAG, "startReading invoked: " + call.getData().toString());
+        Log.d(TAG, "startReadingADH814 invoked: " + call.getData().toString());
         if (serialPort == null) {
             call.reject("No serial connection open");
             return;
         }
 
+        // Clear input buffer
         try {
-            serialPort.getInputStream().skip(serialPort.getInputStream().available());
+            int available = serialPort.getInputStream().available();
+            if (available > 0) {
+                serialPort.getInputStream().skip(available);
+                Log.d(TAG, "Cleared " + available + " bytes from input buffer");
+            }
         } catch (IOException e) {
             Log.w(TAG, "Failed to clear input buffer: " + e.getMessage());
         }
@@ -1102,126 +1053,239 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         notifyListeners("readingStarted", ret);
         call.resolve(ret);
 
-        Thread readingThread = new Thread(() -> {
+        // Start reading thread
+        new Thread(() -> {
+            Log.d(TAG, "ADH814 reading thread started");
             byte[] buffer = new byte[1024];
             ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
 
             while (isReading) {
                 try {
-                    int available = serialPort.getInputStream().available();
-//            Log.d(TAG, "Bytes available: " + available + ", Queue size: " + commandQueue.size() +
-//              ", needsIdleCheck: " + needsIdleCheck + ", needsPostA5Poll: " + needsPostA5Poll);
-                    if (available > 0) {
-                        int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
-                        if (len > 0) {
-                            Log.d(TAG, "Read " + len + " bytes: " + bytesToHex(buffer, len));
-                            packetBuffer.write(buffer, 0, len);
-                            byte[] accumulated = packetBuffer.toByteArray();
-                            int start = 0;
+                    synchronized (this) {
+                        if (serialPort == null) {
+                            Log.w(TAG, "Serial port closed, stopping ADH814 read thread");
+                            break;
+                        }
 
-                            while (start < accumulated.length && isReading) {
-                                if (accumulated.length - start < 4) {
-                                    Log.d(TAG, "Partial packet, waiting for more data: " + bytesToHex(accumulated, accumulated.length));
-                                    break;
-                                }
+                        int available = serialPort.getInputStream().available();
+                        if (available > 0) {
+                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                            if (len > 0) {
+                                Log.d(TAG, "ADH814 received " + len + " bytes: " + bytesToHex(buffer, len));
 
-                                // Find valid start byte (0x00 or 0x01 for A1)
-                                int validStart = start;
-                                while (validStart < accumulated.length &&
-                                        accumulated[validStart] != 0x00 &&
-                                        !(accumulated[validStart] == 0x01 && validStart + 1 < accumulated.length && accumulated[validStart + 1] == (byte) 0xA1)) {
-                                    Log.w(TAG, "Discarding invalid byte at position " + validStart + ": " + String.format("%02x", accumulated[validStart]));
-                                    validStart++;
-                                }
+                                // Process received data
+                                processADH814Data(buffer, len);
 
-                                if (validStart >= accumulated.length) {
-                                    Log.d(TAG, "No valid start byte found, discarding buffer: " + bytesToHex(accumulated, accumulated.length));
-                                    packetBuffer.reset();
-                                    break;
-                                }
-
-                                start = validStart;
-                                int expectedLength = commandQueue.isEmpty() ? 4 :
-                                        expectedResponseLengths.getOrDefault(bytesToHex(commandQueue.peek(), commandQueue.peek().length), 4);
-                                int packetLength = Math.min(expectedLength, accumulated.length - start);
-                                byte[] packet = new byte[packetLength];
-                                System.arraycopy(accumulated, start, packet, 0, packetLength);
-                                String packetHex = bytesToHex(packet, packetLength);
-
-                                JSObject response = parseADH814Response(packet, expectedLength);
-                                Log.d(TAG, "Response received: " + bytesToHex(buffer, len));
-                                Log.d(TAG, "Response received: " + packetHex);
-                                Log.d(TAG, "Full response sent to client: " + response.toString());
+                                // Notify raw data
                                 JSObject dataEvent = new JSObject();
                                 dataEvent.put("data", bytesToHex(buffer, len));
                                 notifyListeners("dataReceived", dataEvent);
-
-                                synchronized (commandQueue) {
-                                    if (!commandQueue.isEmpty()) {
-                                        byte[] sentCommand = commandQueue.peek();
-                                        int sentCommandCode = sentCommand[1] & 0xFF;
-                                        int receivedCommandCode = packet[1] & 0xFF;
-                                        Log.d(TAG, "sentCommandCode: " + sentCommandCode + ", receivedCommandCode: " + receivedCommandCode);
-                                        if (sentCommandCode == receivedCommandCode) {
-                                            commandQueue.poll();
-                                            expectedResponseLengths.remove(bytesToHex(sentCommand, sentCommand.length));
-                                            // Queue ACK for non-A6 responses or A3 with status 2
-                                            if (receivedCommandCode != 0xA6 || (receivedCommandCode == 0xA3 && response.has("statusDetails") &&
-                                                    response.getJSObject("statusDetails").getInteger("status") == 2)) {
-                                                Thread.sleep(2000);
-                                                byte[] ackPacket = buildADH814Packet("A6", new JSObject().put("address", sentCommand[0] & 0xFF));
-                                                commandQueue.add(ackPacket);
-                                                expectedResponseLengths.put(bytesToHex(ackPacket, ackPacket.length), 4);
-                                                Log.d(TAG, "Queued ACK command for response " + packetHex + ": " + bytesToHex(ackPacket, ackPacket.length));
-                                                needsIdleCheck = true; // Poll for idle state after ACK
-                                            }
-                                            if (receivedCommandCode == 0xA3 && response.has("statusDetails")) {
-                                                int status = response.getJSObject("statusDetails").getInteger("status");
-                                                if (status == 0) {
-                                                    needsIdleCheck = false; // Board is idle
-                                                }
-                                            } else if (receivedCommandCode == 0xA5) {
-                                                needsPostA5Poll = true; // Poll after A5
-                                            }
-                                        }
-                                    }
-                                    if (responseLatch != null) {
-                                        responseLatch.countDown();
-                                        Log.d(TAG, "Signaled responseLatch for command processing");
-                                    }
-                                }
-                                start += packetLength;
-                            }
-
-                            int remaining = accumulated.length - start;
-                            if (remaining > 0) {
-                                byte[] remainder = new byte[remaining];
-                                System.arraycopy(accumulated, start, remainder, 0, remaining);
-                                packetBuffer.reset();
-                                packetBuffer.write(remainder);
-                                Log.d(TAG, "Stored " + remaining + " remaining bytes: " + bytesToHex(remainder, remaining));
-                            } else {
-                                packetBuffer.reset();
-                            }
-                        }
-                    } else {
-                        try {
-                            Thread.sleep(50); // 50ms sleep when no data
-                        } catch (InterruptedException e) {
-                            if (!isReading) {
-                                Log.d(TAG, "Reading thread interrupted, stopping");
-                                break;
                             }
                         }
                     }
+
+                    Thread.sleep(10);
                 } catch (Exception e) {
-                    if (isReading) Log.e(TAG, "ADH814 read error: " + e.getMessage());
+                    if (isReading) {
+                        Log.e(TAG, "ADH814 read error: " + e.getMessage());
+                    }
                 }
             }
-            Log.d(TAG, "Reading thread stopped");
-        });
-        readingThread.start();
+
+            Log.d(TAG, "ADH814 reading thread stopped");
+        }).start();
     }
+
+    private void processADH814Data(byte[] data, int length) {
+        if (length < 4) {
+            return; // Not enough data for a complete packet
+        }
+
+        try {
+            // Try to parse each possible packet starting position
+            for (int i = 0; i <= length - 4; i++) {
+                JSObject response = parseADH814Response(data, i, length);
+                if (response != null) {
+                    handleADH814Response(response);
+                    break; // Process one packet at a time
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing ADH814 data: " + e.getMessage());
+        }
+    }
+
+    private JSObject parseADH814Response(byte[] buffer, int start, int totalLength) {
+        if (totalLength - start < 4) {
+            return null;
+        }
+
+        int address = buffer[start] & 0xFF;
+        int command = buffer[start + 1] & 0xFF;
+
+        // Determine packet length based on command
+        int packetLength = getADH814PacketLength(command);
+        if (totalLength - start < packetLength) {
+            return null; // Not enough data for complete packet
+        }
+
+        // Extract complete packet
+        byte[] packet = new byte[packetLength];
+        System.arraycopy(buffer, start, packet, 0, packetLength);
+
+        // Verify CRC
+        byte[] dataBytes = Arrays.copyOfRange(packet, 0, packetLength - 2);
+        int receivedCRC = ((packet[packetLength - 1] & 0xFF) << 8) | (packet[packetLength - 2] & 0xFF);
+        int calculatedCRC = calculateCRCResponse(dataBytes);
+
+        JSObject response = new JSObject();
+        response.put("address", address);
+        response.put("command", String.format("%02X", command));
+        response.put("data", bytesToHex(packet, packetLength));
+        response.put("rawData", bytesToHex(dataBytes, dataBytes.length));
+
+        if (receivedCRC != calculatedCRC) {
+            response.put("crcError", true);
+            Log.w(TAG, "ADH814 CRC mismatch for command: " + String.format("%02X", command));
+        }
+
+        // Parse response data based on command
+        parseADH814ResponseData(response, packet, packetLength);
+
+        return response;
+    }
+
+    private void parseADH814ResponseData(JSObject response, byte[] packet, int packetLength) {
+        int command = Integer.parseInt(response.getString("command"), 16);
+
+        switch (command) {
+            case 0xA3: // POLL
+                if (packetLength >= 11) {
+                    JSObject statusDetails = new JSObject();
+                    statusDetails.put("status", packet[2] & 0xFF); // Status byte
+                    statusDetails.put("motorNumber", packet[3] & 0xFF);
+                    statusDetails.put("faultCode", packet[4] & 0x03);
+                    statusDetails.put("dropSuccess", (packet[4] & 0x04) == 0);
+                    statusDetails.put("maxCurrent", ((packet[5] & 0xFF) << 8) | (packet[6] & 0xFF));
+                    statusDetails.put("avgCurrent", ((packet[7] & 0xFF) << 8) | (packet[8] & 0xFF));
+                    statusDetails.put("runTime", packet[9] & 0xFF);
+                    statusDetails.put("temperature", (byte) packet[10]); // Signed byte
+                    response.put("statusDetails", statusDetails);
+
+                    // Update current status
+                    adh814CurrentStatus = packet[2] & 0xFF;
+                }
+                break;
+
+            case 0xA5: // RUN
+            case 0xA4: // TEMP
+            case 0x35: // SET_SWAP
+                if (packetLength >= 5) {
+                    response.put("executionStatus", packet[2] & 0xFF);
+                }
+                break;
+
+            case 0xA1: // ID
+                if (packetLength >= 18) {
+                    String idString = new String(packet, 2, 16).trim();
+                    response.put("idString", idString);
+                }
+                break;
+        }
+    }
+
+    private void handleADH814Response(JSObject response) {
+        String command = response.getString("command");
+        Log.d(TAG, "ADH814 response - Command: " + command + ", Data: " + response.getString("data"));
+
+        switch (command) {
+            case "A3": // POLL response
+                handleADH814PollResponse(response);
+                break;
+            case "A5": // RUN response
+                handleADH814RunResponse(response);
+                break;
+            case "A6": // ACK response
+                handleADH814AckResponse(response);
+                break;
+        }
+
+        // Notify specific response
+        notifyListeners("adh814Response", response);
+
+        // Remove the corresponding command from queue
+        synchronized (commandQueue) {
+            if (!commandQueue.isEmpty()) {
+                commandQueue.poll();
+                Log.d(TAG, "Removed command from queue after response");
+            }
+        }
+    }
+
+    private void handleADH814PollResponse(JSObject response) {
+        if (response.has("statusDetails")) {
+            JSObject statusDetails = response.getJSObject("statusDetails");
+            int status = statusDetails.getInteger("status", 0);
+            int motorNumber = statusDetails.getInteger("motorNumber", 0);
+            int temperature = statusDetails.getInteger("temperature", 0);
+
+            Log.d(TAG, "ADH814 Poll - Status: " + status + ", Motor: " + motorNumber + ", Temp: " + temperature);
+
+            // Check for completion and queue ACK if needed
+            if (status == 2) { // Delivery complete
+                Log.d(TAG, "Motor delivery complete, queuing ACK");
+                try {
+                    byte[] ackCommand = buildADH814Packet("A6", new JSObject());
+                    synchronized (commandQueue) {
+                        commandQueue.add(ackCommand);
+                        Log.d(TAG, "Queued ACK command after delivery complete");
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to queue ACK command: " + e.getMessage());
+                }
+            }
+
+            // Notify status update
+            JSObject statusEvent = new JSObject();
+            statusEvent.put("status", status);
+            statusEvent.put("statusDetails", statusDetails);
+            notifyListeners("adh814Status", statusEvent);
+        }
+    }
+
+    private void handleADH814RunResponse(JSObject response) {
+        int executionStatus = response.getInteger("executionStatus", 0);
+        Log.d(TAG, "ADH814 Run response - Execution Status: " + executionStatus);
+
+        if (executionStatus == 0) {
+            Log.d(TAG, "Motor run command accepted");
+            adh814CurrentStatus = 1; // Set to delivering
+        } else {
+            Log.w(TAG, "Motor run command failed with status: " + executionStatus);
+        }
+
+        notifyListeners("adh814RunResponse", response);
+    }
+
+    private void handleADH814AckResponse(JSObject response) {
+        Log.d(TAG, "ADH814 ACK received");
+        adh814CurrentStatus = 0; // Reset to idle after ACK
+        notifyListeners("adh814Ack", response);
+    }
+
+    private int getADH814PacketLength(int command) {
+        switch (command) {
+            case 0xA1: return 18; // ID
+            case 0xA3: return 11; // POLL
+            case 0xA5: return 5;  // RUN
+            case 0xA6: return 4;  // ACK
+            case 0xA4: return 5;  // TEMP
+            case 0x35: return 5;  // SET_SWAP
+            case 0x21: return 5;  // TWO_WIRE_MODE
+            default: return 4;    // Minimum
+        }
+    }
+
     // CRC calculations as provided
     public static int calculateCRCResponse(byte[] data) {
         int crc = 0xFFFF;
@@ -1259,4 +1323,437 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     private final Object queueLock = new Object();
     private volatile CountDownLatch responseLatch = null;
     //ADH814
+
+
+
+
+    // M102
+
+    private final Map<String, Integer> expectedResponseLengthsMT102 = new ConcurrentHashMap<>();
+    private volatile boolean isProcessingQueueMT102 = false;
+    private volatile CountDownLatch responseLatchMT102 = null;
+
+// MT102 Specific Methods Only - Add these to your existing plugin class
+
+    @PluginMethod
+    public void writeMT102(PluginCall call) {
+        Log.d(TAG, "writeMT102 invoked: " + call.getData().toString());
+        String data = call.getString("data");
+        if (data == null) {
+            call.reject("Data required");
+            return;
+        }
+
+        try {
+            JSObject jsonData = new JSObject(data);
+            String command = jsonData.getString("command");
+            JSObject params = jsonData.getJSObject("params", new JSObject());
+            if (command == null) {
+                call.reject("Command name required in data");
+                return;
+            }
+
+            byte[] packet = buildMT102Packet(command, params);
+
+            synchronized (commandQueue) {
+                commandQueue.add(packet);
+                Log.d(TAG, "Queued MT102 command: " + bytesToHex(packet, packet.length));
+                Log.d(TAG, "Command queue size: " + commandQueue.size());
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("message", "MT102 command queued");
+            ret.put("data", bytesToHex(packet, packet.length));
+            ret.put("queueSize", commandQueue.size());
+            notifyListeners("commandQueued", ret);
+            call.resolve(ret);
+
+        } catch (Exception e) {
+            call.reject("Failed to parse data or build MT102 packet: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void startReadingMT102(PluginCall call) {
+        Log.d(TAG, "startReadingMT102 invoked: " + call.getData().toString());
+        if (serialPort == null) {
+            call.reject("No serial connection open");
+            return;
+        }
+
+        // Clear input buffer
+        try {
+            int available = serialPort.getInputStream().available();
+            if (available > 0) {
+                serialPort.getInputStream().skip(available);
+                Log.d(TAG, "Cleared " + available + " bytes from input buffer");
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to clear input buffer: " + e.getMessage());
+        }
+
+        isReading = true;
+        JSObject ret = new JSObject();
+        ret.put("message", "MT102 reading started");
+        notifyListeners("readingStarted", ret);
+
+        if (call != null) {
+            call.resolve(ret);
+        }
+
+        // Start the MT102 reading thread
+        new Thread(() -> {
+            Log.d(TAG, "MT102 reading thread started");
+            byte[] buffer = new byte[1024];
+            ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
+
+            while (isReading) {
+                synchronized (this) {
+                    if (serialPort == null) {
+                        Log.w(TAG, "Serial port closed, stopping MT102 thread");
+                        break;
+                    }
+
+                    try {
+                        // Process command queue - send next command if available
+                        processMT102CommandQueue();
+
+                        // Read incoming data
+                        int available = serialPort.getInputStream().available();
+                        if (available > 0) {
+                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
+                            if (len > 0) {
+                                Log.d(TAG, "MT102 received " + len + " bytes: " + bytesToHex(buffer, len));
+                                packetBuffer.write(buffer, 0, len);
+                                byte[] accumulated = packetBuffer.toByteArray();
+
+                                // Process complete packets (20 bytes each for MT102)
+                                int processedBytes = 0;
+                                for (int i = 0; i <= accumulated.length - 20; i++) {
+                                    byte[] packet = new byte[20];
+                                    System.arraycopy(accumulated, i, packet, 0, 20);
+
+                                    JSObject response = parseMT102Response(packet);
+                                    if (response != null) {
+                                        Log.d(TAG, "MT102 Response parsed: " + response.toString());
+                                        handleMT102Response(response);
+                                        processedBytes = i + 20;
+                                    }
+                                }
+
+                                // Remove processed data from buffer
+                                if (processedBytes > 0) {
+                                    byte[] newAccumulated = new byte[accumulated.length - processedBytes];
+                                    System.arraycopy(accumulated, processedBytes, newAccumulated, 0, newAccumulated.length);
+                                    packetBuffer.reset();
+                                    if (newAccumulated.length > 0) {
+                                        packetBuffer.write(newAccumulated);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (isReading) {
+                            Log.e(TAG, "MT102 read error: " + e.getMessage());
+                            JSObject errorEvent = new JSObject();
+                            errorEvent.put("error", "Read error: " + e.getMessage());
+                            notifyListeners("readError", errorEvent);
+                        }
+                    }
+                }
+
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+
+            Log.d(TAG, "MT102 reading thread stopped");
+        }).start();
+    }
+
+    // Private helper methods for MT102
+    private void processMT102CommandQueue() {
+        synchronized (commandQueue) {
+            if (commandQueue.isEmpty()) {
+                return;
+            }
+
+            try {
+                byte[] command = commandQueue.peek();
+                if (command != null && serialPort != null) {
+                    String cmdHex = bytesToHex(command, command.length);
+                    Log.d(TAG, "Sending MT102 command: " + cmdHex);
+
+                    serialPort.getOutputStream().write(command);
+                    serialPort.getOutputStream().flush();
+
+                    JSObject writeEvent = new JSObject();
+                    writeEvent.put("data", cmdHex);
+                    writeEvent.put("queueSize", commandQueue.size() - 1);
+                    notifyListeners("serialWriteSuccess", writeEvent);
+
+                    Thread.sleep(50);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error sending MT102 command: " + e.getMessage());
+                commandQueue.poll();
+            }
+        }
+    }
+
+    private void handleMT102Response(JSObject response) {
+        JSObject dataEvent = new JSObject();
+        dataEvent.put("data", response.getString("data"));
+        dataEvent.put("command", response.getString("command"));
+        dataEvent.put("address", response.getString("address"));
+        notifyListeners("dataReceived", dataEvent);
+
+        notifyListeners("mt102Response", response);
+
+        synchronized (commandQueue) {
+            if (!commandQueue.isEmpty()) {
+                byte[] removedCommand = commandQueue.poll();
+                Log.d(TAG, "Removed command from queue, remaining: " + commandQueue.size());
+
+                JSObject queueEvent = new JSObject();
+                queueEvent.put("queueSize", commandQueue.size());
+                queueEvent.put("removedCommand", bytesToHex(removedCommand, removedCommand.length));
+                notifyListeners("commandProcessed", queueEvent);
+            }
+        }
+    }
+
+    private byte[] buildMT102Packet(String command, JSObject params) {
+        int address = clampToByte(params.getInteger("address", 0x01));
+        if (address < 0x01 || address > 0x08) {
+            throw new IllegalArgumentException("Address must be 0x01-0x08 for MT102");
+        }
+
+        byte[] data;
+        byte cmdByte;
+
+        switch (command.toUpperCase()) {
+            case "01": // Get Serial Number
+                cmdByte = 0x01;
+                data = new byte[0];
+                break;
+
+            case "03": // Motor Poll
+                cmdByte = 0x03;
+                data = new byte[0];
+                break;
+
+            case "04": // Motor Scan
+                cmdByte = 0x04;
+                int motorIndex = clampToByte(params.getInteger("motorIndex", 0));
+                if (motorIndex < 0 || motorIndex > 99) {
+                    throw new IllegalArgumentException("Motor index must be 0-99");
+                }
+                data = new byte[]{ (byte) motorIndex };
+                break;
+
+            case "05": // Motor Run
+                cmdByte = 0x05;
+                motorIndex = clampToByte(params.getInteger("motorIndex", 0));
+                if (motorIndex < 0 || motorIndex > 59) {
+                    throw new IllegalArgumentException("Motor index must be 0-59");
+                }
+                int motorType = clampToByte(params.getInteger("motorType", 0));
+                if (motorType < 0 || motorType > 3) {
+                    throw new IllegalArgumentException("Motor type must be 0-3");
+                }
+                int lightCurtainMode = clampToByte(params.getInteger("lightCurtainMode", 0));
+                if (lightCurtainMode < 0 || lightCurtainMode > 2) {
+                    throw new IllegalArgumentException("Light curtain mode must be 0-2");
+                }
+                int overcurrentThreshold = clampToByte(params.getInteger("overcurrentThreshold", 0));
+                int undercurrentThreshold = clampToByte(params.getInteger("undercurrentThreshold", 0));
+                int timeout = clampToByte(params.getInteger("timeout", 0));
+
+                data = new byte[6];
+                data[0] = (byte) motorIndex;
+                data[1] = (byte) motorType;
+                data[2] = (byte) lightCurtainMode;
+                data[3] = (byte) overcurrentThreshold;
+                data[4] = (byte) undercurrentThreshold;
+                data[5] = (byte) timeout;
+                break;
+
+            case "07": // Read Temperature
+                cmdByte = 0x07;
+                data = new byte[0];
+                break;
+
+            case "08": // Write DO
+                cmdByte = 0x08;
+                int doIndex = clampToByte(params.getInteger("doIndex", 0));
+                if (doIndex < 0 || doIndex > 7) {
+                    throw new IllegalArgumentException("DO index must be 0-7");
+                }
+                int operation = clampToByte(params.getInteger("operation", 0));
+                if (operation != 0 && operation != 1) {
+                    throw new IllegalArgumentException("Operation must be 0 (OFF) or 1 (ON)");
+                }
+                data = new byte[]{ (byte) doIndex, (byte) operation };
+                break;
+
+            case "09": // Read DI
+                cmdByte = 0x09;
+                data = new byte[0];
+                break;
+
+            case "FF": // Set Address
+                cmdByte = (byte) 0xFF;
+                int newAddress = clampToByte(params.getInteger("newAddress", 0x01));
+                if (newAddress < 0x01 || newAddress > 0x08) {
+                    throw new IllegalArgumentException("New address must be 0x01-0x08");
+                }
+                data = new byte[]{ (byte) newAddress };
+                break;
+
+            default:
+                throw new IllegalArgumentException("Unsupported MT102 command: " + command);
+        }
+
+        // Build 20-byte packet
+        byte[] packet = new byte[20];
+        packet[0] = (byte) address;
+        packet[1] = cmdByte;
+
+        // Pad data to 16 bytes
+        byte[] paddedData = new byte[16];
+        System.arraycopy(data, 0, paddedData, 0, Math.min(data.length, 16));
+        System.arraycopy(paddedData, 0, packet, 2, 16);
+
+        // Calculate CRC16
+        byte[] dataForCRC = Arrays.copyOfRange(packet, 0, 18);
+        int crc = calculateM102CRC16(dataForCRC);
+
+        packet[18] = (byte) (crc & 0xFF);
+        packet[19] = (byte) ((crc >> 8) & 0xFF);
+
+        Log.d(TAG, "Built MT102 packet - Address: " + address +
+                ", Command: " + String.format("%02X", cmdByte) +
+                ", Data: " + bytesToHex(paddedData, paddedData.length) +
+                ", CRC: " + String.format("%04X", crc));
+
+        return packet;
+    }
+
+    private JSObject parseMT102Response(byte[] packet) {
+        if (packet.length != 20) {
+            Log.w(TAG, "Invalid MT102 response length: " + packet.length + " bytes, expected 20");
+            return null;
+        }
+
+        // Verify CRC
+        byte[] dataForCRC = Arrays.copyOfRange(packet, 0, 18);
+        int calculatedCRC = calculateM102CRC16(dataForCRC);
+        int receivedCRC = ((packet[19] & 0xFF) << 8) | (packet[18] & 0xFF);
+
+        if (receivedCRC != calculatedCRC) {
+            Log.w(TAG, "MT102 CRC mismatch: received 0x" + String.format("%04X", receivedCRC) +
+                    ", calculated 0x" + String.format("%04X", calculatedCRC));
+        }
+
+        JSObject response = new JSObject();
+        int address = packet[0] & 0xFF;
+        int command = packet[1] & 0xFF;
+        byte[] data = Arrays.copyOfRange(packet, 2, 18);
+
+        response.put("address", String.format("%02X", address));
+        response.put("command", String.format("%02X", command));
+        response.put("data", bytesToHex(data, data.length));
+        response.put("crc", String.format("%04X", receivedCRC));
+        response.put("crcValid", receivedCRC == calculatedCRC);
+
+        // Parse response data based on command
+        switch (command) {
+            case 0x01: // Get Serial Number
+                if (data.length >= 12) {
+                    String serialNumber = new String(data, 0, 12).trim();
+                    response.put("serialNumber", serialNumber);
+                }
+                break;
+
+            case 0x03: // Motor Poll
+                if (data.length >= 10) {
+                    JSObject statusDetails = new JSObject();
+                    statusDetails.put("executionStatus", data[0] & 0xFF);
+                    statusDetails.put("runningMotor", data[1] & 0xFF);
+                    statusDetails.put("executionResult", data[2] & 0xFF);
+                    statusDetails.put("peakCurrent", ((data[3] & 0xFF) << 8) | (data[4] & 0xFF));
+                    statusDetails.put("averageCurrent", ((data[5] & 0xFF) << 8) | (data[6] & 0xFF));
+                    statusDetails.put("runningTime", ((data[7] & 0xFF) << 8) | (data[8] & 0xFF));
+                    statusDetails.put("lightCurtainState", data[9] & 0xFF);
+                    response.put("statusDetails", statusDetails);
+                }
+                break;
+
+            case 0x04: // Motor Scan
+                if (data.length >= 1) {
+                    int result = data[0] & 0xFF;
+                    response.put("result", String.format("%02X", result));
+                }
+                break;
+
+            case 0x05: // Motor Run
+                if (data.length >= 1) {
+                    response.put("executionResult", data[0] & 0xFF);
+                }
+                break;
+
+            case 0x07: // Read Temperature
+                if (data.length >= 2) {
+                    int tempRaw = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+                    response.put("temperature", tempRaw / 10.0);
+                }
+                break;
+
+            case 0x08: // Write DO
+                if (data.length >= 2) {
+                    response.put("doIndex", data[0] & 0xFF);
+                    response.put("operationResult", String.format("%02X", data[1] & 0xFF));
+                }
+                break;
+
+            case 0x09: // Read DI
+                if (data.length >= 4) {
+                    JSObject diStatus = new JSObject();
+                    for (int i = 0; i < 8 && i < data.length; i++) {
+                        diStatus.put("DI" + i, (data[i] & 0xFF) == 1);
+                    }
+                    response.put("diStatus", diStatus);
+                }
+                break;
+
+            case 0xFF: // Set Address
+                if (data.length >= 1) {
+                    response.put("newAddress", data[0] & 0xFF);
+                }
+                break;
+        }
+
+        return response;
+    }
+
+    private int calculateM102CRC16(byte[] data) {
+        int crc = 0xFFFF;
+        for (byte b : data) {
+            crc ^= (b & 0xFF);
+            for (int j = 0; j < 8; j++) {
+                if ((crc & 0x0001) != 0) {
+                    crc = (crc >> 1) ^ 0xA001;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+        return crc;
+    }
+
+
+    // M102
 }
