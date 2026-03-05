@@ -90,12 +90,24 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     @Override
-    protected void handleOnDestroy() {
-        if (usbPermissionReceiver != null) {
-            getContext().unregisterReceiver(usbPermissionReceiver);
-            usbPermissionReceiver = null;
+protected void handleOnDestroy() {
+    isReading = false;
+    isProcessingADH814 = false;
+
+    if (serialPort != null) {
+        synchronized (serialLock) {
+            try {
+                serialPort.close();
+            } catch (Exception ignored) {}
+            serialPort = null;
         }
     }
+
+    if (usbPermissionReceiver != null) {
+        getContext().unregisterReceiver(usbPermissionReceiver);
+        usbPermissionReceiver = null;
+    }
+}
 
     @PluginMethod
     public void listPorts(PluginCall call) {
@@ -950,151 +962,109 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     private void startADH814CommandProcessing() {
-        if (isProcessingADH814) {
-            return;
-        }
+    if (isProcessingADH814) return;
+    isProcessingADH814 = true;
 
-        isProcessingADH814 = true;
-        new Thread(() -> {
-            Log.d(TAG, "ADH814 command processor started");
+    new Thread(() -> {
+        Log.d(TAG, "ADH814 command processor started");
 
-            while (isProcessingADH814 && isReading) {
-                synchronized (this) {
-                    if (serialPort == null) {
-                        Log.w(TAG, "Serial port closed, stopping ADH814 processor");
-                        isProcessingADH814 = false;
-                        break;
-                    }
-
-                    try {
-                        synchronized (commandQueue) {
-                            if (!commandQueue.isEmpty()) {
-                                byte[] command = commandQueue.peek();
-                                if (command != null && command.length >= 2) {
-                                    int commandCode = command[1] & 0xFF;
-
-                                    // Check if we can send RUN command based on current status
-                                    if (commandCode == 0xA5 && adh814CurrentStatus != 0) {
-                                        Log.d(TAG, "Cannot send RUN command - motor status: " + adh814CurrentStatus);
-                                        continue; // Skip RUN command if not idle
-                                    }
-
-                                    // Send the command
-                                    String cmdHex = bytesToHex(command, command.length);
-                                    Log.d(TAG, "Sending ADH814 command: " + cmdHex);
-                                    serialPort.getOutputStream().write(command);
-                                    serialPort.getOutputStream().flush();
-
-                                    JSObject writeEvent = new JSObject();
-                                    writeEvent.put("data", cmdHex);
-                                    writeEvent.put("command", String.format("%02X", commandCode));
-                                    notifyListeners("serialWriteSuccess", writeEvent);
-
-                                    // Wait for response based on command type
-                                    if (commandCode == 0xA5) { // RUN command
-                                        Thread.sleep(1000); // Wait longer for RUN
-                                    } else {
-                                        Thread.sleep(200); // Wait for other commands
-                                    }
-                                }
-                            } else {
-                                // Queue is empty, send periodic POLL
-                                if (adh814CurrentStatus != 0) { // Only poll if not idle
-                                    byte[] pollCommand = buildADH814Packet("A3", new JSObject());
-                                    commandQueue.add(pollCommand);
-                                    Log.d(TAG, "Queued periodic POLL command");
-                                }
-                            }
-                        }
-                    } catch (IOException e) {
-                        Log.e(TAG, "Error sending ADH814 command: " + e.getMessage());
-                    } catch (InterruptedException e) {
-                        Log.w(TAG, "ADH814 processor interrupted");
-                        break;
-                    } catch (Exception e) {
-                        Log.e(TAG, "Unexpected error in ADH814 processor: " + e.getMessage());
-                    }
+        while (isProcessingADH814) {
+            byte[] command = null;
+            synchronized (commandLock) {
+                if (commandQueue.size() > 10) {  // Limit queue size to prevent unbounded growth
+                    commandQueue.poll();  // Drop oldest if overflow
+                    Log.w(TAG, "Command queue overflow - dropped oldest command");
                 }
-
-                try {
-                    Thread.sleep(50); // Main loop delay
-                } catch (InterruptedException e) {
-                    break;
+                if (!commandQueue.isEmpty()) {
+                    command = commandQueue.poll();  // remove, not peek
                 }
             }
 
-            isProcessingADH814 = false;
-            Log.d(TAG, "ADH814 command processor stopped");
-        }).start();
-    }
+            if (command != null) {
+                try {
+                    synchronized (serialLock) {
+                        if (serialPort == null) break;
+
+                        String cmdHex = bytesToHex(command, command.length);
+                        Log.d(TAG, "Sending: " + cmdHex);
+                        serialPort.getOutputStream().write(command);
+                        serialPort.getOutputStream().flush();
+
+                        // Notify success
+                        JSObject ev = new JSObject().put("data", cmdHex);
+                        notifyListeners("serialWriteSuccess", ev);
+                    }
+
+                    // Adaptive wait (longer for RUN, shorter otherwise)
+                    int waitMs = (command[1] == (byte)0xA5) ? 800 : 150;
+                    Thread.sleep(waitMs);
+                } catch (Exception e) {
+                    Log.e(TAG, "Send error: " + e.getMessage());
+                }
+            } else {
+                // Backoff when idle (longer sleep to reduce CPU)
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+
+        isProcessingADH814 = false;
+        Log.d(TAG, "ADH814 command processor stopped");
+    }).start();
+}
 
     @PluginMethod
-    public void startReadingADH814(PluginCall call) {
-        Log.d(TAG, "startReadingADH814 invoked: " + call.getData().toString());
-        if (serialPort == null) {
-            call.reject("No serial connection open");
-            return;
-        }
+public void startReadingADH814(PluginCall call) {
+    if (serialPort == null) {
+        call.reject("No serial connection");
+        return;
+    }
 
-        // Clear input buffer
+    // Clear buffer once at start
+    synchronized (serialLock) {
         try {
-            int available = serialPort.getInputStream().available();
-            if (available > 0) {
-                serialPort.getInputStream().skip(available);
-                Log.d(TAG, "Cleared " + available + " bytes from input buffer");
-            }
-        } catch (IOException e) {
-            Log.w(TAG, "Failed to clear input buffer: " + e.getMessage());
-        }
+            int avail = serialPort.getInputStream().available();
+            if (avail > 0) serialPort.getInputStream().skip(avail);
+        } catch (Exception ignored) {}
+    }
 
-        isReading = true;
-        JSObject ret = new JSObject();
-        ret.put("message", "ADH814 reading started");
-        notifyListeners("readingStarted", ret);
-        call.resolve(ret);
+    isReading = true;
+    call.resolve(new JSObject().put("message", "Reading started"));
 
-        // Start reading thread
-        new Thread(() -> {
-            Log.d(TAG, "ADH814 reading thread started");
-            byte[] buffer = new byte[1024];
-            ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
+    new Thread(() -> {
+        Log.d(TAG, "ADH814 reading thread started");
+        byte[] buffer = new byte[512];
 
-            while (isReading) {
-                try {
-                    synchronized (this) {
-                        if (serialPort == null) {
-                            Log.w(TAG, "Serial port closed, stopping ADH814 read thread");
-                            break;
-                        }
-
-                        int available = serialPort.getInputStream().available();
-                        if (available > 0) {
-                            int len = serialPort.getInputStream().read(buffer, 0, Math.min(available, buffer.length));
-                            if (len > 0) {
-                                Log.d(TAG, "ADH814 received " + len + " bytes: " + bytesToHex(buffer, len));
-
-                                // Process received data
-                                processADH814Data(buffer, len);
-
-                                // Notify raw data
-                                JSObject dataEvent = new JSObject();
-                                dataEvent.put("data", bytesToHex(buffer, len));
-                                notifyListeners("dataReceived", dataEvent);
-                            }
-                        }
-                    }
-
-                    Thread.sleep(10);
-                } catch (Exception e) {
-                    if (isReading) {
-                        Log.e(TAG, "ADH814 read error: " + e.getMessage());
+        while (isReading) {
+            try {
+                int len = 0;
+                synchronized (serialLock) {
+                    if (serialPort == null) break;
+                    int available = serialPort.getInputStream().available();
+                    if (available > 0) {
+                        len = serialPort.getInputStream().read(buffer);
                     }
                 }
-            }
 
-            Log.d(TAG, "ADH814 reading thread stopped");
-        }).start();
-    }
+                if (len > 0) {
+                    Log.d(TAG, "Received " + len + " bytes: " + bytesToHex(buffer, len));
+                    processADH814Data(buffer, len); // must be quick or offload
+
+                    JSObject ev = new JSObject().put("data", bytesToHex(buffer, len));
+                    notifyListeners("dataReceived", ev);
+                } else {
+                    // Backoff sleep when no data (reduce CPU)
+                    Thread.sleep(20);
+                }
+            } catch (Exception e) {
+                if (isReading) Log.e(TAG, "Read error", e);
+                break;
+            }
+        }
+        Log.d(TAG, "Reading thread stopped");
+    }).start();
+}
 
     private void processADH814Data(byte[] data, int length) {
         if (length < 4) {
