@@ -20,6 +20,9 @@ import com.hoho.android.usbserial.driver.UsbSerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialProber;
 import com.hoho.android.usbserial.driver.Ch34xSerialDriver;
 import com.hoho.android.usbserial.driver.ProbeTable;
+
+import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 
 import android.serialport.SerialPort; // Updated version
@@ -42,7 +45,8 @@ import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 @CapacitorPlugin(name = "SerialCapacitor")
 public class SerialConnectionCapacitorPlugin extends Plugin {
@@ -55,45 +59,887 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   private volatile boolean isReading = false;
   private UsbManager usbManager;
   private BroadcastReceiver usbPermissionReceiver;
+  private BroadcastReceiver usbAttachReceiver;
+  private PendingIntent usbPermissionIntent;
+  private PluginCall pendingPermissionCall;
   private final Queue<byte[]> commandQueue = new LinkedList<>();
   private byte packNoCounter = 0;
+  private SSP sspDevice;
+  private boolean isNV9Mode = false;
+  private Thread pollThread;
+  private volatile boolean isPolling = false;
+  private boolean isNV9AutoDetectEnabled = false;
   static {
     System.loadLibrary("serial_port");
   }
-
+  private static final String NV9_DEVICE_HINT = "NV9";
+  private volatile boolean autoReadingStarted = false;
+  private SSP ssp;
+  @RequiresApi(api = Build.VERSION_CODES.N)
   @SuppressLint("UnspecifiedRegisterReceiverFlag")
   @Override
   public void load() {
+    super.load();
+
+    // Initialize SSP
+    sspDevice = new SSP();
     usbManager = (UsbManager) getContext().getSystemService(Context.USB_SERVICE);
-    IntentFilter filter = new IntentFilter("com.laoapps.plugins.USB_PERMISSION");
+
+    // Create USB permission intent
+    usbPermissionIntent = PendingIntent.getBroadcast(
+      getContext(),
+      0,
+      new Intent("com.laoapps.plugins.USB_PERMISSION"),
+      PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
+    );
+
+    // Register USB permission receiver
+    IntentFilter permissionFilter = new IntentFilter("com.laoapps.plugins.USB_PERMISSION");
     usbPermissionReceiver = new BroadcastReceiver() {
       @Override
       public void onReceive(Context context, Intent intent) {
-        String action = intent.getAction();
-        if ("com.laoapps.plugins.USB_PERMISSION".equals(action)) {
-          synchronized (this) {
-            UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-              Log.d(TAG, "USB permission granted: " + (device != null ? device.getDeviceName() : "null"));
-            } else {
-              Log.w(TAG, "USB permission denied: " + (device != null ? device.getDeviceName() : "null"));
+        if ("com.laoapps.plugins.USB_PERMISSION".equals(intent.getAction())) {
+          UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+          boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
+
+          Log.d(TAG, "USB permission response - Granted: " + granted +
+            ", Device: " + (device != null ? device.getDeviceName() : "null"));
+
+          if (granted && device != null) {
+            Log.d(TAG, "USB permission granted for: " + device.getDeviceName());
+
+            // If we have a pending USB device from auto-connect
+            if (pendingUSBDevice != null && pendingUSBDevice.equals(device)) {
+              Log.d(TAG, "Auto-connecting pending USB device after permission grant");
+
+              // Find driver and connect
+              List<UsbSerialDriver> drivers = findNV9Drivers();
+              for (UsbSerialDriver driver : drivers) {
+                if (driver.getDevice().equals(device)) {
+                  attemptUSBOpen(driver, device);
+                  pendingUSBDevice = null;
+                  break;
+                }
+              }
+            }
+
+            // Check if this is an NV9 device for notification
+            if (isLikelyNV9(device)) {
+              JSObject event = new JSObject();
+              event.put("event", "usbPermissionGranted");
+              event.put("deviceName", device.getDeviceName());
+              event.put("vendorId", device.getVendorId());
+              event.put("productId", device.getProductId());
+              notifyListeners("usbDeviceEvent", event);
+            }
+
+            // Resolve any pending call
+            if (pendingPermissionCall != null) {
+              JSObject ret = new JSObject();
+              ret.put("granted", true);
+              ret.put("deviceName", device.getDeviceName());
+              ret.put("message", "USB permission granted");
+              pendingPermissionCall.resolve(ret);
+              pendingPermissionCall = null;
+            }
+          } else {
+            Log.d(TAG, "USB permission denied");
+            if (pendingPermissionCall != null) {
+              pendingPermissionCall.reject("USB permission denied");
+              pendingPermissionCall = null;
             }
           }
         }
       }
     };
+
+    // Register USB attach/detach receiver
+    IntentFilter usbFilter = new IntentFilter();
+    usbFilter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+    usbFilter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+
+    usbAttachReceiver = new BroadcastReceiver() {
+      @RequiresApi(api = Build.VERSION_CODES.N)
+      @Override
+      public void onReceive(Context context, Intent intent) {
+        String action = intent.getAction();
+        UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+
+        if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+          handleUsbAttached(device);
+        } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+          handleUsbDetached(device);
+        }
+      }
+    };
+
+    // Register receivers with proper flags for different Android versions
+    int flags = 0;
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      getContext().registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-    } else {
-      getContext().registerReceiver(usbPermissionReceiver, filter);
+      flags = Context.RECEIVER_NOT_EXPORTED;
+    }
+
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        getContext().registerReceiver(usbPermissionReceiver, permissionFilter, flags);
+        getContext().registerReceiver(usbAttachReceiver, usbFilter, flags);
+      } else {
+        getContext().registerReceiver(usbPermissionReceiver, permissionFilter);
+        getContext().registerReceiver(usbAttachReceiver, usbFilter);
+      }
+      Log.d(TAG, "USB receivers registered successfully");
+    } catch (Exception e) {
+      Log.e(TAG, "Failed to register USB receivers: " + e.getMessage());
+    }
+
+    // SCAN ONLY - Don't auto-open, just report
+    Log.d(TAG, "Scanning for USB devices...");
+    scanAndReportUSBDevices();
+  }
+  /**
+   * Auto-start USB connection - call this immediately on load
+   */
+  /**
+   * Scan for USB devices and report them, but don't open
+   */
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void scanAndReportUSBDevices() {
+    new Thread(() -> {
+      try {
+        Log.d(TAG, "Scanning for USB NV9 devices...");
+
+        // Small delay to let USB system initialize
+        Thread.sleep(1000);
+
+        // Find all potential NV9 drivers
+        List<UsbSerialDriver> drivers = findNV9Drivers();
+
+        if (drivers.isEmpty()) {
+          Log.d(TAG, "No NV9 USB devices found during scan");
+
+          JSObject event = new JSObject();
+          event.put("event", "usbScanComplete");
+          event.put("found", false);
+          event.put("count", 0);
+          event.put("message", "No NV9 devices found");
+          notifyListeners("usbDeviceEvent", event);
+          return;
+        }
+
+        Log.d(TAG, "Found " + drivers.size() + " potential NV9 USB devices");
+
+        // Report each device but don't open
+        JSONArray devicesList = new JSONArray();
+
+        for (UsbSerialDriver driver : drivers) {
+          UsbDevice device = driver.getDevice();
+          String portName = device.getDeviceName();
+
+          boolean hasPermission = usbManager.hasPermission(device);
+
+          Log.d(TAG, "USB Device Found: " + portName +
+            " (VID: " + String.format("0x%04X", device.getVendorId()) +
+            ", PID: " + String.format("0x%04X", device.getProductId()) +
+            ", HasPermission: " + hasPermission + ")");
+
+          JSONObject devInfo = new JSONObject();
+          try {
+            devInfo.put("name", portName);
+            devInfo.put("vendorId", String.format("0x%04X", device.getVendorId()));
+            devInfo.put("productId", String.format("0x%04X", device.getProductId()));
+            devInfo.put("hasPermission", hasPermission);
+            devInfo.put("isLikelyNV9", true);
+            devicesList.put(devInfo);
+          } catch (JSONException e) {
+            Log.e(TAG, "JSON error: " + e.getMessage());
+          }
+
+          // If no permission, request it but don't open
+          if (!hasPermission) {
+            Log.d(TAG, "Requesting permission for device: " + portName);
+            usbManager.requestPermission(device, usbPermissionIntent);
+          }
+        }
+
+        // Send scan results
+        JSObject event = new JSObject();
+        event.put("event", "usbScanComplete");
+        event.put("found", true);
+        event.put("count", drivers.size());
+        event.put("devices", devicesList.toString());
+        event.put("message", "USB devices found - use openUSB() to connect");
+        notifyListeners("usbDeviceEvent", event);
+
+      } catch (Exception e) {
+        Log.e(TAG, "Error scanning USB devices: " + e.getMessage());
+        e.printStackTrace();
+
+        JSObject event = new JSObject();
+        event.put("event", "usbScanError");
+        event.put("error", e.getMessage());
+        notifyListeners("usbDeviceEvent", event);
+      }
+    }).start();
+  }
+  private void handleUsbAttached(UsbDevice device) {
+    if (device != null && isLikelyNV9(device)) {
+      Log.d(TAG, "NV9 attached: " + device.getDeviceName());
+
+      // Just report, don't auto-open
+      JSObject event = new JSObject();
+      event.put("event", "usbAttached");
+      event.put("deviceName", device.getDeviceName());
+      event.put("vendorId", device.getVendorId());
+      event.put("productId", device.getProductId());
+      event.put("hasPermission", usbManager.hasPermission(device));
+      notifyListeners("usbDeviceEvent", event);
+
+      // Request permission if needed
+      if (!usbManager.hasPermission(device)) {
+        Log.d(TAG, "Requesting permission for attached NV9");
+        usbManager.requestPermission(device, usbPermissionIntent);
+      }
+    }
+  }
+  @PluginMethod
+  public void checkUSBStatus(PluginCall call) {
+    Log.d(TAG, "checkUSBStatus invoked");
+
+    JSObject ret = new JSObject();
+
+    try {
+      // Check USB manager
+      ret.put("usbManagerAvailable", usbManager != null);
+
+      if (usbManager != null) {
+        HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+        ret.put("totalUsbDevices", deviceList.size());
+
+        JSONArray devices = new JSONArray();
+        for (UsbDevice device : deviceList.values()) {
+          JSONObject devInfo = new JSONObject();
+          devInfo.put("name", device.getDeviceName());
+          devInfo.put("vendorId", String.format("0x%04X", device.getVendorId()));
+          devInfo.put("productId", String.format("0x%04X", device.getProductId()));
+          devInfo.put("hasPermission", usbManager.hasPermission(device));
+          devInfo.put("isLikelyNV9", isLikelyNV9(device));
+          devices.put(devInfo);
+        }
+        ret.put("devices", devices.toString());
+      }
+
+      // Check current connection status
+      ret.put("usbSerialPortOpen", usbSerialPort != null);
+      ret.put("isNV9Mode", isNV9Mode);
+      ret.put("isPolling", isPolling);
+      ret.put("serialPortOpen", serialPort != null);
+
+      Log.d(TAG, "USB Status: " + ret.toString());
+
+    } catch (Exception e) {
+      Log.e(TAG, "Error checking USB status: " + e.getMessage());
+      ret.put("error", e.getMessage());
+    }
+
+    call.resolve(ret);
+  }
+
+  private void handleUsbDetached(UsbDevice device) {
+    if (device != null && usbSerialPort != null &&
+      usbSerialPort.getDriver().getDevice().equals(device)) {
+      Log.d(TAG, "NV9 detached → cleaning up");
+
+      // Close the connection
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        close(null);
+      }
+
+      isNV9Mode = false;
+      isPolling = false;
+      usbSerialPort = null;
+
+      JSObject event = new JSObject();
+      event.put("event", "usbDetached");
+      event.put("deviceName", device.getDeviceName());
+      notifyListeners("usbDeviceEvent", event);
     }
   }
 
+  private void detectAndNotifyUSBDevices() {
+    try {
+      List<UsbSerialDriver> drivers = findNV9Drivers();
+      if (!drivers.isEmpty()) {
+        JSObject event = new JSObject();
+        event.put("event", "usbDevicesDetected");
+        event.put("count", drivers.size());
+
+        JSONArray devices = new JSONArray();
+        for (UsbSerialDriver driver : drivers) {
+          JSONObject device = new JSONObject();
+          UsbDevice usbDevice = driver.getDevice();
+          device.put("name", usbDevice.getDeviceName());
+          device.put("vendorId", usbDevice.getVendorId());
+          device.put("productId", usbDevice.getProductId());
+          device.put("hasPermission", usbManager.hasPermission(usbDevice));
+          devices.put(device);
+        }
+        event.put("devices", devices.toString());
+        notifyListeners("usbDeviceEvent", event);
+      }
+    } catch (Exception e) {
+      Log.e(TAG, "Error detecting USB devices: " + e.getMessage());
+    }
+  }
+  // Improved: make isLikelyNV9 more reliable once you know VID/PID
+  private boolean isLikelyNV9(UsbDevice device) {
+    // Common CH340/CH341 chips used in NV9
+    if (device.getVendorId() == 0x1A86) {
+      if (device.getProductId() == 0x7523 || // CH340
+        device.getProductId() == 0x5523) { // CH341
+        return true;
+      }
+    }
+    // Qin Heng devices
+    if (device.getVendorId() == 0xA69C && device.getProductId() == 0x8801) {
+      return true;
+    }
+
+    String manufacturer = device.getManufacturerName();
+    if (manufacturer != null) {
+      String lower = manufacturer.toLowerCase();
+      if (lower.contains("qin heng") || lower.contains("wch") || lower.contains("win")) {
+        return true;
+      }
+    }
+
+    return device.getInterfaceCount() > 0;
+  }
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void autoOpenNV9(UsbDevice device) {
+    try {
+      Log.d(TAG, "=== Starting autoOpenNV9 for device: " + device.getDeviceName() + " ===");
+      Log.d(TAG, "Vendor ID: 0x" + String.format("%04X", device.getVendorId()));
+      Log.d(TAG, "Product ID: 0x" + String.format("%04X", device.getProductId()));
+
+      List<UsbSerialDriver> drivers = findNV9Drivers();
+      Log.d(TAG, "Found " + drivers.size() + " drivers total");
+
+      for (UsbSerialDriver driver : drivers) {
+        Log.d(TAG, "Checking driver for device: " + driver.getDevice().getDeviceName());
+
+        if (driver.getDevice().equals(device)) {
+          Log.d(TAG, "Found matching driver, opening port...");
+
+          usbSerialPort = driver.getPorts().get(0);
+
+          // Open with timeout
+          usbSerialPort.open(usbManager.openDevice(device));
+          Log.d(TAG, "USB port opened successfully");
+
+          // Configure port
+          usbSerialPort.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+          usbSerialPort.setDTR(true);
+          usbSerialPort.setRTS(true);
+
+          Log.d(TAG, "USB port configured: 9600 8N1, DTR/RTS enabled");
+
+          isNV9Mode = true;
+
+          // Auto-initialize SSP
+          Log.d(TAG, "Starting SSP initialization...");
+          initializeSSPAsync();
+
+          JSObject ret = new JSObject();
+          ret.put("detected", true);
+          ret.put("portName", device.getDeviceName());
+          ret.put("mode", "NV9");
+          ret.put("message", "NV9 auto-opened successfully");
+          notifyListeners("nv9AutoOpened", ret);
+
+          Log.d(TAG, "=== autoOpenNV9 completed successfully ===");
+          return;
+        }
+      }
+
+      Log.e(TAG, "No matching driver found for device");
+
+    } catch (Exception e) {
+      Log.e(TAG, "=== autoOpenNV9 FAILED ===");
+      Log.e(TAG, "Error: " + e.getMessage());
+      e.printStackTrace();
+
+      usbSerialPort = null;
+      isNV9Mode = false;
+
+      JSObject err = new JSObject();
+      err.put("error", e.getMessage());
+      err.put("deviceName", device.getDeviceName());
+      notifyListeners("nv9AutoOpenFailed", err);
+    }
+  }
+  private List<UsbSerialDriver> findNV9Drivers() {
+    List<UsbSerialDriver> candidates = new ArrayList<>();
+
+    // Default prober
+    List<UsbSerialDriver> all = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
+
+    // CH340/CH341 specific prober
+    ProbeTable ch34xTable = new ProbeTable();
+    ch34xTable.addProduct(0x1A86, 0x7523, Ch34xSerialDriver.class);
+    ch34xTable.addProduct(0x1A86, 0x5523, Ch34xSerialDriver.class);
+    ch34xTable.addProduct(0xA69C, 0x8801, Ch34xSerialDriver.class);
+    UsbSerialProber chProber = new UsbSerialProber(ch34xTable);
+    all.addAll(chProber.findAllDrivers(usbManager));
+
+    // Filter for NV9 devices
+    for (UsbSerialDriver d : all) {
+      if (isLikelyNV9(d.getDevice())) {
+        candidates.add(d);
+      }
+    }
+
+    Log.d(TAG, "Found " + candidates.size() + " potential NV9 drivers");
+    return candidates;
+  }
+
+
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  @PluginMethod
+  public void autoDetectAndOpenNV9(PluginCall call) {
+    Log.d(TAG, "autoDetectAndOpenNV9 called");
+
+    // First, check if serial port is already open for controller board
+    if (serialPort != null) {
+      Log.d(TAG, "Serial connection active, NV9 will be secondary");
+    }
+
+    if (usbSerialPort != null) {
+      call.reject("USB connection already open");
+      return;
+    }
+
+    List<UsbSerialDriver> drivers = findNV9Drivers();
+    if (drivers.isEmpty()) {
+      Log.d(TAG, "No NV9 detected");
+      JSObject ret = new JSObject();
+      ret.put("detected", false);
+      ret.put("message", "NV9 not found");
+      call.resolve(ret);
+      return;
+    }
+
+    UsbSerialDriver driver = drivers.get(0);
+    UsbDevice device = driver.getDevice();
+    String portName = device.getDeviceName();
+
+    if (!usbManager.hasPermission(device)) {
+      Log.d(TAG, "Requesting permission for auto-open: " + portName);
+      pendingPermissionCall = call; // Store call for later resolution
+      usbManager.requestPermission(device, usbPermissionIntent);
+      return; // Don't reject, wait for permission
+    }
+
+    // Permission already granted, proceed with opening
+    try {
+      usbSerialPort = driver.getPorts().get(0);
+      usbSerialPort.open(usbManager.openDevice(device));
+      usbSerialPort.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+      usbSerialPort.setDTR(true);
+      usbSerialPort.setRTS(true);
+
+      Log.d(TAG, "Auto-opened NV9 on " + portName);
+
+      isNV9Mode = true;
+
+      // Initialize SSP with the USB port
+      initializeSSPWithUSB();
+
+      JSObject ret = new JSObject();
+      ret.put("detected", true);
+      ret.put("portName", portName);
+      ret.put("message", "NV9 auto-detected and opened");
+      ret.put("mode", "NV9");
+      call.resolve(ret);
+
+    } catch (Exception e) {
+      usbSerialPort = null;
+      isNV9Mode = false;
+      call.reject("Auto-open failed: " + e.getMessage());
+    }
+  }
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void initializeSSPWithUSB() {
+    new Thread(() -> {
+      try {
+        Log.d(TAG, "Initializing SSP with USB connection...");
+
+        // Create SSP instance
+        ssp = new SSP();
+
+        // Set quiet mode based on debug flag
+        ssp.setQuietMode(true);
+
+        // Initialize SSP
+        ssp.initSSP().get(30000, TimeUnit.MILLISECONDS);
+
+        // Enable device
+        ssp.enable().get(5000, TimeUnit.MILLISECONDS);
+
+        // Start polling
+        startPolling();
+
+        Log.d(TAG, "SSP initialized successfully with USB");
+
+        JSObject event = new JSObject();
+        event.put("event", "nv9Ready");
+        event.put("message", "NV9 initialized and ready");
+        notifyListeners("nv9Event", event);
+
+      } catch (Exception e) {
+        Log.e(TAG, "SSP initialization failed: " + e.getMessage());
+        JSObject event = new JSObject();
+        event.put("event", "nv9Error");
+        event.put("error", "Initialization failed: " + e.getMessage());
+        notifyListeners("nv9Event", event);
+      }
+    }).start();
+  }
+  // New method - call from JS on app init, or from attach broadcast
+
+  // Helper to find possible NV9 drivers
+  // END USB
+
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void initializeSSPAsync() {
+    new Thread(() -> {
+      try {
+        Log.d(TAG, "Auto-initializing SSP...");
+
+        // Enable debug mode to see all SSP communication
+        sspDevice.setQuietMode(false); // Set to false to see all SSP logs
+
+        // ============ REGISTER ALL POSSIBLE NV9 EVENT LISTENERS ============
+
+        // Note acceptance events
+        sspDevice.on("READ_NOTE", (event) -> {
+          Log.d(TAG, "SSP Event - READ_NOTE: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "READ_NOTE");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("CREDIT_NOTE", (event) -> {
+          Log.d(TAG, "SSP Event - CREDIT_NOTE: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "CREDIT_NOTE");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("NOTE_STACKED", (event) -> {
+          Log.d(TAG, "SSP Event - NOTE_STACKED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "NOTE_STACKED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("NOTE_REJECTING", (event) -> {
+          Log.d(TAG, "SSP Event - NOTE_REJECTING: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "NOTE_REJECTING");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("NOTE_REJECTED", (event) -> {
+          Log.d(TAG, "SSP Event - NOTE_REJECTED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "NOTE_REJECTED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Status events
+        sspDevice.on("DISABLED", (event) -> {
+          Log.d(TAG, "SSP Event - DISABLED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "DISABLED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("ENABLED", (event) -> {
+          Log.d(TAG, "SSP Event - ENABLED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "ENABLED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("STACKER_FULL", (event) -> {
+          Log.d(TAG, "SSP Event - STACKER_FULL: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "STACKER_FULL");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Fraud and jam events
+        sspDevice.on("FRAUD_ATTEMPT", (event) -> {
+          Log.d(TAG, "SSP Event - FRAUD_ATTEMPT: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "FRAUD_ATTEMPT");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("SAFE_NOTE_JAM", (event) -> {
+          Log.d(TAG, "SSP Event - SAFE_NOTE_JAM: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "SAFE_NOTE_JAM");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("UNSAFE_NOTE_JAM", (event) -> {
+          Log.d(TAG, "SSP Event - UNSAFE_NOTE_JAM: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "UNSAFE_NOTE_JAM");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Cashbox events
+        sspDevice.on("CASHBOX_REMOVED", (event) -> {
+          Log.d(TAG, "SSP Event - CASHBOX_REMOVED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "CASHBOX_REMOVED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("CASHBOX_REPLACED", (event) -> {
+          Log.d(TAG, "SSP Event - CASHBOX_REPLACED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "CASHBOX_REPLACED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Note held in bezel (for note return/capture)
+        sspDevice.on("NOTE_HELD_IN_BEZEL", (event) -> {
+          Log.d(TAG, "SSP Event - NOTE_HELD_IN_BEZEL: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "NOTE_HELD_IN_BEZEL");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Note cleared events
+        sspDevice.on("NOTE_CLEARED_FROM_FRONT", (event) -> {
+          Log.d(TAG, "SSP Event - NOTE_CLEARED_FROM_FRONT: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "NOTE_CLEARED_FROM_FRONT");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        sspDevice.on("NOTE_CLEARED_TO_CASHBOX", (event) -> {
+          Log.d(TAG, "SSP Event - NOTE_CLEARED_TO_CASHBOX: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "NOTE_CLEARED_TO_CASHBOX");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Bar code ticket events (if supported)
+        sspDevice.on("BAR_CODE_TICKET_VALIDATED", (event) -> {
+          Log.d(TAG, "SSP Event - BAR_CODE_TICKET_VALIDATED: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "BAR_CODE_TICKET_VALIDATED");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Channel disable event
+        sspDevice.on("CHANNEL_DISABLE", (event) -> {
+          Log.d(TAG, "SSP Event - CHANNEL_DISABLE: " + event.toString());
+          JSObject jsEvent = new JSObject();
+          jsEvent.put("event", "CHANNEL_DISABLE");
+          jsEvent.put("data", event.toString());
+          notifyListeners("nv9Event", jsEvent);
+        });
+
+        // Generic listener for all events (catch-all)
+        sspDevice.on("POLL", (event) -> {
+          Log.d(TAG, "SSP Poll Event - Raw: " + event.toString());
+
+          // Extract events array from poll response
+          try {
+            if (event.has("info") && event.getJSONObject("info").has("events")) {
+              JSONArray events = event.getJSONObject("info").getJSONArray("events");
+              for (int i = 0; i < events.length(); i++) {
+                JSONObject pollEvent = events.getJSONObject(i);
+                String eventName = pollEvent.getString("name");
+
+                // Forward each event individually
+                JSObject jsEvent = new JSObject();
+                jsEvent.put("event", eventName);
+                jsEvent.put("data", pollEvent.toString());
+                notifyListeners("nv9Event", jsEvent);
+
+                Log.d(TAG, "Forwarded poll event: " + eventName);
+              }
+            }
+          } catch (Exception e) {
+            Log.e(TAG, "Error parsing poll events: " + e.getMessage());
+          }
+        });
+
+        // Run initialization sequence
+        Log.d(TAG, "Running SSP init sequence...");
+        sspDevice.initSSP().get(30000, TimeUnit.MILLISECONDS);
+
+        Log.d(TAG, "SSP auto-initialization complete");
+
+        // Auto-enable and start polling
+        Log.d(TAG, "Enabling SSP device...");
+        sspDevice.enable().get(5000, TimeUnit.MILLISECONDS);
+
+        Log.d(TAG, "Starting polling...");
+        startPolling();
+
+        JSObject event = new JSObject();
+        event.put("event", "nv9Ready");
+        event.put("message", "NV9 initialized and ready");
+        event.put("timestamp", System.currentTimeMillis());
+        notifyListeners("nv9Event", event);
+
+        Log.d(TAG, "SSP initialization completed successfully!");
+
+      } catch (Exception e) {
+        Log.e(TAG, "SSP auto-init failed: " + e.getMessage());
+        e.printStackTrace();
+        JSObject event = new JSObject();
+        event.put("event", "nv9Error");
+        event.put("error", "Initialization failed: " + e.getMessage());
+        event.put("timestamp", System.currentTimeMillis());
+        notifyListeners("nv9Event", event);
+      }
+    }).start();
+  }
+
+  @PluginMethod
+  public void checkBothConnections(PluginCall call) {
+    JSObject ret = new JSObject();
+
+    // Serial status
+    ret.put("serialConnected", serialPort != null);
+    if (serialPort != null) {
+      ret.put("serialPort", "/dev/ttyS1");
+    }
+
+    // USB status
+    ret.put("usbConnected", usbSerialPort != null);
+    if (usbSerialPort != null) {
+      ret.put("usbPort", usbSerialPort.getDriver().getDevice().getDeviceName());
+    }
+
+    // SSP status
+    ret.put("sspInitialized", sspDevice != null && sspDevice.isEnabled());
+
+    Log.d(TAG, "Both connections status: " + ret.toString());
+    call.resolve(ret);
+  }
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void startPolling() {
+    if (isPolling) return;
+
+    isPolling = true;
+    pollThread = new Thread(() -> {
+      Log.d(TAG, "NV9 polling started");
+
+      while (isPolling && isNV9Mode) {
+        try {
+          JSONObject pollResult = sspDevice.command("POLL").get(2000, TimeUnit.MILLISECONDS);
+
+          // Process and emit events
+          JSONObject info = pollResult.optJSONObject("info");
+          if (info != null && info.has("events")) {
+            JSONArray events = info.optJSONArray("events");
+            if (events != null) {
+              for (int i = 0; i < events.length(); i++) {
+                JSONObject event = events.optJSONObject(i);
+                if (event != null) {
+                  String eventName = event.optString("name");
+                  JSObject jsEvent = new JSObject();
+                  jsEvent.put("event", eventName);
+                  jsEvent.put("data", event.toString());
+                  notifyListeners("nv9Event", jsEvent);
+                }
+              }
+            }
+          }
+
+          Thread.sleep(150);
+
+        } catch (Exception e) {
+          if (!isPolling) break;
+          try {
+            Thread.sleep(1000);
+          } catch (InterruptedException ie) {
+            break;
+          }
+        }
+      }
+
+      Log.d(TAG, "NV9 polling stopped");
+    });
+
+    pollThread.start();
+  }
+
+  private void stopPolling() {
+    isPolling = false;
+    if (pollThread != null) {
+      pollThread.interrupt();
+      pollThread = null;
+    }
+  }
+  // NEW METHOD: Open with NV9 detection
+
+
+  // NEW METHOD: Close NV9 connection
+
   @Override
   protected void handleOnDestroy() {
+    Log.d(TAG, "Plugin being destroyed, cleaning up...");
+
+    stopPolling();
+
     if (usbPermissionReceiver != null) {
-      getContext().unregisterReceiver(usbPermissionReceiver);
+      try {
+        getContext().unregisterReceiver(usbPermissionReceiver);
+      } catch (Exception e) {
+        Log.e(TAG, "Error unregistering permission receiver: " + e.getMessage());
+      }
       usbPermissionReceiver = null;
+    }
+
+    if (usbAttachReceiver != null) {
+      try {
+        getContext().unregisterReceiver(usbAttachReceiver);
+      } catch (Exception e) {
+        Log.e(TAG, "Error unregistering attach receiver: " + e.getMessage());
+      }
+      usbAttachReceiver = null;
+    }
+
+    // Close any open connections
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+      close(null);
     }
   }
 
@@ -149,18 +995,20 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     notifyListeners("portsListed", ret);
     call.resolve(ret);
   }
-
+  @RequiresApi(api = Build.VERSION_CODES.N)
   @PluginMethod
   public void openSerial(PluginCall call) {
-    Log.d(TAG, "openSerial invoked: " + call.getData().toString());
+    Log.d(TAG, "openSerial invoked with data: " + call.getData().toString());
+
     String portName = call.getString("portName");
-    int baudRate = call.getInt("baudRate", 9600);
-    // New parameters with defaults
-    int dataBits = call.getInt("dataBits", 8); // Default 8
-    int stopBits = call.getInt("stopBits", 1); // Default 1
-    String parity = call.getString("parity", "none"); // Default "none"
-    int bufferSize = call.getInt("bufferSize", 0); // Default 0 (no buffering)
-    int flags = call.getInt("flags", 0); // Default 0
+    int baudRate = call.getInt("baudRate", 38400);
+    int dataBits = call.getInt("dataBits", 8);
+    int stopBits = call.getInt("stopBits", 1);
+    String parity = call.getString("parity", "none");
+    int bufferSize = call.getInt("bufferSize", 1024);
+    int flags = call.getInt("flags", 0);
+    boolean isNV9 = call.getBoolean("isNV9", false);
+    boolean autoConnectUSB = call.getBoolean("autoConnectUSB", true); // New parameter
 
     if (portName == null) {
       call.reject("Port name is required");
@@ -168,48 +1016,611 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     synchronized (this) {
-      if (serialPort != null) {
-        call.reject("A serial connection is already open; close it first");
-        return;
-      }
-      if (usbSerialPort != null) {
-        call.reject("USB serial connection is already open; close it first");
-        return;
+      // Close any existing connection first
+      if (serialPort != null || usbSerialPort != null) {
+        Log.d(TAG, "Closing existing connection before opening new one");
+        close(null);
       }
 
+      // Try to open native serial port
       try {
+        Log.d(TAG, "Attempting to open native serial port: " + portName);
+
         serialPort = new SerialPort(portName, baudRate, flags, dataBits, stopBits, parity, bufferSize);
-        Log.d(TAG, "Serial opened successfully on " + portName + " with baudRate=" + baudRate +
-          ", dataBits=" + dataBits + ", stopBits=" + stopBits + ", parity=" + parity +
-          ", bufferSize=" + bufferSize);
+
+        Log.d(TAG, "✓ Native serial opened successfully on " + portName + " with baudRate=" + baudRate);
+
         JSObject ret = new JSObject();
+        ret.put("success", true);
         ret.put("message", "Serial connection opened for " + portName);
         ret.put("portName", portName);
         ret.put("baudRate", baudRate);
-        ret.put("dataBits", dataBits);
-        ret.put("stopBits", stopBits);
-        ret.put("parity", parity);
-        ret.put("bufferSize", bufferSize);
+        ret.put("connectionType", "native");
+        ret.put("isNV9", isNV9);
+
         notifyListeners("serialOpened", ret);
+
+        // If this is an NV9 device, auto-initialize
+        if (isNV9) {
+          Log.d(TAG, "NV9 mode enabled for serial port");
+          isNV9Mode = true;
+          initializeSSPAsync();
+        }
+
+        // AUTO-CONNECT USB after successful serial connection
+        if (autoConnectUSB) {
+          Log.d(TAG, "Auto-connecting USB after serial success...");
+          autoConnectUSBAfterSerial();
+        }
+
         call.resolve(ret);
+        return;
+
       } catch (SecurityException e) {
-        call.reject("Permission denied: " + e.getMessage());
+        Log.e(TAG, "✗ Permission denied for serial port: " + e.getMessage());
+        call.reject("Permission denied for serial port: " + e.getMessage());
+
       } catch (IOException e) {
-        call.reject("Failed to open serial connection: " + e.getMessage());
+        Log.e(TAG, "✗ IO Exception for serial port: " + e.getMessage());
+        call.reject("Failed to open serial connection - port may not exist or is busy: " + e.getMessage());
+
       } catch (IllegalArgumentException e) {
-        call.reject("Invalid parameter: " + e.getMessage());
+        Log.e(TAG, "✗ Invalid parameter for serial port: " + e.getMessage());
+        call.reject("Invalid parameter for serial connection: " + e.getMessage());
       }
     }
   }
 
+  /**
+   * Auto-connect to USB device after serial connection is established
+   */
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void autoConnectUSBAfterSerial() {
+    new Thread(() -> {
+      try {
+        Log.d(TAG, "=== Starting USB auto-connect after serial ===");
+
+        // Small delay to let serial initialize
+        Thread.sleep(1000);
+
+        // Find USB NV9 devices
+        List<UsbSerialDriver> drivers = findNV9Drivers();
+
+        if (drivers.isEmpty()) {
+          Log.d(TAG, "No USB NV9 devices found for auto-connect");
+
+          JSObject event = new JSObject();
+          event.put("event", "usbAutoConnectFailed");
+          event.put("reason", "No NV9 devices found");
+          notifyListeners("usbDeviceEvent", event);
+          return;
+        }
+
+        Log.d(TAG, "Found " + drivers.size() + " potential USB NV9 devices");
+
+        // Try each device
+        for (UsbSerialDriver driver : drivers) {
+          UsbDevice device = driver.getDevice();
+          String usbPortName = device.getDeviceName();
+
+          Log.d(TAG, "Attempting to connect to USB: " + usbPortName);
+
+          // Check if we already have a USB connection
+          if (usbSerialPort != null) {
+            Log.d(TAG, "USB already connected, skipping");
+            return;
+          }
+
+          // Check permission
+          if (!usbManager.hasPermission(device)) {
+            Log.d(TAG, "USB permission needed for: " + usbPortName + " - requesting...");
+
+            // Store for later when permission is granted
+            pendingUSBDevice = device;
+
+            // Notify that permission is needed
+            JSObject event = new JSObject();
+            event.put("event", "usbPermissionNeeded");
+            event.put("deviceName", usbPortName);
+            event.put("vendorId", device.getVendorId());
+            event.put("productId", device.getProductId());
+            notifyListeners("usbDeviceEvent", event);
+
+            // Request permission
+            usbManager.requestPermission(device, usbPermissionIntent);
+
+            // Wait a bit for permission (will continue in receiver)
+            Thread.sleep(2000);
+            continue;
+          }
+
+          // Try to open USB connection
+          boolean opened = attemptUSBOpen(driver, device);
+          if (opened) {
+            Log.d(TAG, "✓ USB auto-connect successful: " + usbPortName);
+
+            JSObject event = new JSObject();
+            event.put("event", "usbAutoConnected");
+            event.put("deviceName", usbPortName);
+            event.put("success", true);
+            notifyListeners("usbDeviceEvent", event);
+
+            return; // Success, stop trying
+          }
+        }
+
+        Log.d(TAG, "USB auto-connect completed - no successful connections");
+
+      } catch (Exception e) {
+        Log.e(TAG, "Error in USB auto-connect: " + e.getMessage());
+        e.printStackTrace();
+      }
+    }).start();
+  }
+
+  // Add this class variable
+  private UsbDevice pendingUSBDevice = null;
+
+  /**
+   * Attempt to open USB connection
+   */
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private boolean attemptUSBOpen(UsbSerialDriver driver, UsbDevice device) {
+    try {
+      Log.d(TAG, "Opening USB device: " + device.getDeviceName());
+
+      usbSerialPort = driver.getPorts().get(0);
+      usbSerialPort.open(usbManager.openDevice(device));
+
+      // NV9 standard settings
+      usbSerialPort.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+      usbSerialPort.setDTR(true);
+      usbSerialPort.setRTS(true);
+
+      Log.d(TAG, "USB port configured successfully");
+
+      // Set NV9 mode
+      isNV9Mode = true;
+
+      // IMPORTANT: Create a new SSP instance or reuse existing one
+      if (sspDevice == null) {
+        sspDevice = new SSP();
+      }
+
+      // Tell SSP to use this USB port instead of opening its own
+      sspDevice.setUsbSerialPort(usbSerialPort);
+
+      // Initialize SSP for USB
+      Log.d(TAG, "Initializing SSP for USB...");
+      initializeSSPAsync();
+
+      // Notify success
+      JSObject ret = new JSObject();
+      ret.put("success", true);
+      ret.put("message", "USB connection opened");
+      ret.put("portName", device.getDeviceName());
+      ret.put("connectionType", "usb");
+      notifyListeners("usbSerialOpened", ret);
+
+      return true;
+
+    } catch (Exception e) {
+      Log.e(TAG, "Failed to open USB: " + e.getMessage());
+      e.printStackTrace();
+      usbSerialPort = null;
+      return false;
+    }
+  }
+// Update your permission receiver to handle auto-connect
+// In your usbPermissionReceiver, add this after permission is granted:
+
+/*
+In the onReceive method where permission is granted, add:
+
+// If we have a pending USB device from auto-connect
+if (pendingUSBDevice != null && pendingUSBDevice.equals(device)) {
+    Log.d(TAG, "Auto-connecting pending USB device after permission grant");
+
+    // Find driver and connect
+    List<UsbSerialDriver> drivers = findNV9Drivers();
+    for (UsbSerialDriver driver : drivers) {
+        if (driver.getDevice().equals(device)) {
+            attemptUSBOpen(driver, device);
+            pendingUSBDevice = null;
+            break;
+        }
+    }
+}
+*/
+
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  private void attemptUSBFallback(PluginCall originalCall, boolean isNV9) {
+    Log.d(TAG, "Attempting USB fallback...");
+
+    // Check if there are any USB devices that might be NV9
+    List<UsbSerialDriver> drivers = findNV9Drivers();
+
+    if (drivers.isEmpty()) {
+      Log.d(TAG, "No USB NV9 devices found for fallback");
+      JSObject ret = new JSObject();
+      ret.put("success", false);
+      ret.put("message", "No NV9 USB device found for fallback");
+      ret.put("fallbackAttempted", true);
+      originalCall.resolve(ret); // Resolve with failure instead of reject to allow UI handling
+      return;
+    }
+
+    // Found USB devices, try to open the first one
+    UsbSerialDriver driver = drivers.get(0);
+    UsbDevice device = driver.getDevice();
+    String usbPortName = device.getDeviceName();
+
+    Log.d(TAG, "Found USB device for fallback: " + usbPortName);
+
+    if (!usbManager.hasPermission(device)) {
+      Log.d(TAG, "Requesting USB permission for fallback device");
+      pendingPermissionCall = originalCall; // Store for later resolution
+      usbManager.requestPermission(device, usbPermissionIntent);
+
+      // Store the NV9 flag for when permission is granted
+      isNV9Mode = isNV9;
+      return;
+    }
+
+    // Permission already granted, open USB connection
+    try {
+      usbSerialPort = driver.getPorts().get(0);
+      usbSerialPort.open(usbManager.openDevice(device));
+
+      // Use appropriate baud rate for NV9
+      int usbBaudRate = 9600; // NV9 standard baud rate
+      usbSerialPort.setParameters(usbBaudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+      usbSerialPort.setDTR(true);
+      usbSerialPort.setRTS(true);
+
+      Log.d(TAG, "USB fallback opened successfully on " + usbPortName);
+
+      JSObject ret = new JSObject();
+      ret.put("success", true);
+      ret.put("message", "USB fallback connection opened");
+      ret.put("portName", usbPortName);
+      ret.put("baudRate", usbBaudRate);
+      ret.put("connectionType", "usb");
+      ret.put("isNV9", isNV9);
+      ret.put("fallbackUsed", true);
+
+      notifyListeners("usbSerialOpened", ret);
+
+      // If this is an NV9 device, auto-initialize
+      if (isNV9) {
+        isNV9Mode = true;
+        initializeSSPAsync();
+      }
+
+      originalCall.resolve(ret);
+
+    } catch (Exception e) {
+      Log.e(TAG, "USB fallback failed: " + e.getMessage());
+      usbSerialPort = null;
+      isNV9Mode = false;
+
+      JSObject ret = new JSObject();
+      ret.put("success", false);
+      ret.put("message", "USB fallback failed: " + e.getMessage());
+      ret.put("fallbackAttempted", true);
+      originalCall.resolve(ret);
+    }
+  }
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  @PluginMethod
+  public void openUSB(PluginCall call) {
+    String portName = call.getString("portName");
+
+    if (portName == null) {
+      call.reject("Port name is required");
+      return;
+    }
+
+    Log.d(TAG, "Explicitly opening USB device: " + portName);
+
+    // First, close any existing connection
+    if (serialPort != null || usbSerialPort != null) {
+      Log.d(TAG, "Closing existing connection before opening USB");
+      close(null);
+    }
+
+    // Find the device
+    UsbDevice targetDevice = null;
+    HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+    for (UsbDevice device : deviceList.values()) {
+      if (device.getDeviceName().equals(portName)) {
+        targetDevice = device;
+        break;
+      }
+    }
+
+    if (targetDevice == null) {
+      call.reject("Device not found: " + portName);
+      return;
+    }
+
+    if (!usbManager.hasPermission(targetDevice)) {
+      Log.d(TAG, "Requesting permission for: " + portName);
+      pendingPermissionCall = call;
+      usbManager.requestPermission(targetDevice, usbPermissionIntent);
+      return;
+    }
+
+    // Open the USB device
+    try {
+      List<UsbSerialDriver> drivers = findNV9Drivers();
+      for (UsbSerialDriver driver : drivers) {
+        if (driver.getDevice().equals(targetDevice)) {
+          usbSerialPort = driver.getPorts().get(0);
+          usbSerialPort.open(usbManager.openDevice(targetDevice));
+          usbSerialPort.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+          usbSerialPort.setDTR(true);
+          usbSerialPort.setRTS(true);
+
+          Log.d(TAG, "USB opened successfully: " + portName);
+
+          isNV9Mode = true;
+
+          // Initialize SSP
+          initializeSSPAsync();
+
+          JSObject ret = new JSObject();
+          ret.put("success", true);
+          ret.put("message", "USB connection opened");
+          ret.put("portName", portName);
+          ret.put("connectionType", "usb");
+          notifyListeners("usbSerialOpened", ret);
+          call.resolve(ret);
+          return;
+        }
+      }
+      call.reject("No compatible driver found for device");
+
+    } catch (Exception e) {
+      Log.e(TAG, "Failed to open USB: " + e.getMessage());
+      e.printStackTrace();
+      usbSerialPort = null;
+      isNV9Mode = false;
+      call.reject("Failed to open USB: " + e.getMessage());
+    }
+  }
+
+  @PluginMethod
+  public void listUSBDevices(PluginCall call) {
+    Log.d(TAG, "listUSBDevices invoked");
+
+    JSObject ret = new JSObject();
+    JSONArray usbDevices = new JSONArray();
+
+    try {
+      List<UsbSerialDriver> drivers = findNV9Drivers();
+
+      for (UsbSerialDriver driver : drivers) {
+        UsbDevice device = driver.getDevice();
+        JSONObject devInfo = new JSONObject();
+        devInfo.put("name", device.getDeviceName());
+        devInfo.put("vendorId", String.format("0x%04X", device.getVendorId()));
+        devInfo.put("productId", String.format("0x%04X", device.getProductId()));
+        devInfo.put("hasPermission", usbManager.hasPermission(device));
+        usbDevices.put(devInfo);
+
+        Log.d(TAG, "USB Device: " + device.getDeviceName() +
+          " (Permission: " + usbManager.hasPermission(device) + ")");
+      }
+
+      ret.put("devices", usbDevices.toString());
+      ret.put("count", drivers.size());
+
+    } catch (Exception e) {
+      Log.e(TAG, "Error listing USB devices: " + e.getMessage());
+      ret.put("error", e.getMessage());
+    }
+
+    call.resolve(ret);
+  }
+
+
+
+  /**
+   * Test USB connection by sending a simple command
+   */
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  @PluginMethod
+  public void testUSBConnection(PluginCall call) {
+    String portName = call.getString("portName", "/dev/bus/usb/002/005");
+
+    Log.d(TAG, "=== Testing USB Connection on " + portName + " ===");
+
+    JSObject ret = new JSObject();
+
+    try {
+      // Find the device
+      UsbDevice targetDevice = null;
+      HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+      for (UsbDevice device : deviceList.values()) {
+        if (device.getDeviceName().equals(portName)) {
+          targetDevice = device;
+          break;
+        }
+      }
+
+      if (targetDevice == null) {
+        ret.put("success", false);
+        ret.put("error", "Device not found: " + portName);
+        call.resolve(ret);
+        return;
+      }
+
+      ret.put("deviceFound", true);
+      ret.put("vendorId", String.format("0x%04X", targetDevice.getVendorId()));
+      ret.put("productId", String.format("0x%04X", targetDevice.getProductId()));
+      ret.put("hasPermission", usbManager.hasPermission(targetDevice));
+
+      if (!usbManager.hasPermission(targetDevice)) {
+        ret.put("permissionNeeded", true);
+        ret.put("message", "Permission needed - request first");
+        call.resolve(ret);
+        return;
+      }
+
+      // Try to open and test
+      List<UsbSerialDriver> drivers = findNV9Drivers();
+      UsbSerialDriver foundDriver = null;
+
+      for (UsbSerialDriver driver : drivers) {
+        if (driver.getDevice().equals(targetDevice)) {
+          foundDriver = driver;
+          break;
+        }
+      }
+
+      if (foundDriver == null) {
+        ret.put("success", false);
+        ret.put("error", "No compatible driver found");
+        call.resolve(ret);
+        return;
+      }
+
+      // Test opening
+      try {
+        UsbSerialPort testPort = foundDriver.getPorts().get(0);
+        testPort.open(usbManager.openDevice(targetDevice));
+        testPort.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+
+        ret.put("openSuccess", true);
+
+        // Try to send a simple NV9 command (SYNC or POLL)
+        byte[] testCommand = hexStringToByteArray("7F8001118265"); // SYNC command
+
+        Log.d(TAG, "Sending test command: " + bytesToHex(testCommand));
+        testPort.write(testCommand, 1000);
+
+        // Wait for response
+        Thread.sleep(500);
+
+        byte[] response = new byte[1024];
+        int read = testPort.read(response, 1000);
+
+        if (read > 0) {
+          byte[] actualResponse = new byte[read];
+          System.arraycopy(response, 0, actualResponse, 0, read);
+          ret.put("response", bytesToHex(actualResponse));
+          ret.put("responseLength", read);
+          ret.put("deviceResponded", true);
+          Log.d(TAG, "USB Response: " + bytesToHex(actualResponse));
+        } else {
+          ret.put("deviceResponded", false);
+          ret.put("message", "No response from device");
+        }
+
+        testPort.close();
+
+      } catch (Exception e) {
+        Log.e(TAG, "USB test failed: " + e.getMessage());
+        ret.put("testError", e.getMessage());
+      }
+
+    } catch (Exception e) {
+      Log.e(TAG, "USB test error: " + e.getMessage());
+      ret.put("error", e.getMessage());
+    }
+
+    call.resolve(ret);
+  }
+
+  /**
+   * Request USB permission for a device
+   */
+  @PluginMethod
+  public void requestUSBPermission(PluginCall call) {
+    String portName = call.getString("portName", "/dev/bus/usb/002/005");
+
+    Log.d(TAG, "Requesting USB permission for: " + portName);
+
+    // Find the device
+    UsbDevice targetDevice = null;
+    HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+    for (UsbDevice device : deviceList.values()) {
+      if (device.getDeviceName().equals(portName)) {
+        targetDevice = device;
+        break;
+      }
+    }
+
+    if (targetDevice == null) {
+      call.reject("Device not found: " + portName);
+      return;
+    }
+
+    pendingPermissionCall = call;
+    usbManager.requestPermission(targetDevice, usbPermissionIntent);
+  }
+
+  /**
+   * Get detailed USB device info
+   */
+  @PluginMethod
+  public void getUSBDeviceInfo(PluginCall call) {
+    String portName = call.getString("portName", "/dev/bus/usb/002/005");
+
+    JSObject ret = new JSObject();
+
+    try {
+      UsbDevice targetDevice = null;
+      HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+      for (UsbDevice device : deviceList.values()) {
+        if (device.getDeviceName().equals(portName)) {
+          targetDevice = device;
+          break;
+        }
+      }
+
+      if (targetDevice == null) {
+        ret.put("found", false);
+        call.resolve(ret);
+        return;
+      }
+
+      ret.put("found", true);
+      ret.put("deviceName", targetDevice.getDeviceName());
+      ret.put("vendorId", String.format("0x%04X", targetDevice.getVendorId()));
+      ret.put("productId", String.format("0x%04X", targetDevice.getProductId()));
+      ret.put("deviceId", targetDevice.getDeviceId());
+      ret.put("deviceClass", targetDevice.getDeviceClass());
+      ret.put("hasPermission", usbManager.hasPermission(targetDevice));
+
+      String manufacturer = targetDevice.getManufacturerName();
+      String product = targetDevice.getProductName();
+
+      if (manufacturer != null) ret.put("manufacturer", manufacturer);
+      if (product != null) ret.put("product", product);
+
+      ret.put("interfaceCount", targetDevice.getInterfaceCount());
+
+    } catch (Exception e) {
+      ret.put("error", e.getMessage());
+    }
+
+    call.resolve(ret);
+  }
+
+
+
+  @RequiresApi(api = Build.VERSION_CODES.N)
   @PluginMethod
   public void openUsbSerial(PluginCall call) {
     Log.d(TAG, "openUsbSerial invoked: " + call.getData().toString());
     String portName = call.getString("portName");
     int baudRate = call.getInt("baudRate", 9600);
-    int dataBits = call.getInt("dataBits", 8); // Default 8
-    int stopBits = call.getInt("stopBits", 1); // Default 1
-    String parity = call.getString("parity", "none"); // Default "none"
+    int dataBits = call.getInt("dataBits", 8);
+    int stopBits = call.getInt("stopBits", 1);
+    String parity = call.getString("parity", "none");
+    boolean isNV9 = call.getBoolean("isNV9", false);
 
     if (portName == null) {
       call.reject("Port name is required");
@@ -217,7 +1628,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     if (portName.startsWith("/dev/ttyS")) {
-      call.reject("Use openSerial for native serial ports (e.g., /dev/ttyS*); openUsbSerial is for USB devices");
+      call.reject("Use openSerial for native serial ports");
       return;
     }
 
@@ -273,24 +1684,30 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         usbSerialPort.setParameters(baudRate, dataBits, stopBits, parityValue);
         usbSerialPort.setDTR(true);
         usbSerialPort.setRTS(true);
-        Log.d(TAG, "USB serial opened successfully on " + portName + " with baudRate=" + baudRate +
-          ", dataBits=" + dataBits + ", stopBits=" + stopBits + ", parity=" + parity);
+
+        Log.d(TAG, "USB serial opened successfully on " + portName);
+
         JSObject ret = new JSObject();
         ret.put("message", "USB serial connection opened");
         ret.put("portName", portName);
         ret.put("baudRate", baudRate);
-        ret.put("dataBits", dataBits);
-        ret.put("stopBits", stopBits);
-        ret.put("parity", parity);
         notifyListeners("usbSerialOpened", ret);
+
+        // If this is an NV9 device, auto-initialize
+        if (isNV9) {
+          isNV9Mode = true;
+          // You'll need to set the input/output streams for SSP
+          initializeSSPAsync();
+        }
+
         call.resolve(ret);
+
       } catch (Exception e) {
         usbSerialPort = null;
         call.reject("Failed to open USB serial: " + e.getMessage());
       }
     }
   }
-
   @PluginMethod
   public void write(PluginCall call) {
     Log.d(TAG, "write invoked: " + call.getData().toString());
@@ -315,7 +1732,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
           notifyListeners("serialWriteSuccess", ret);
           call.resolve(ret);
           try {
-            Thread.sleep(2200); // Main loop delay
+            Thread.sleep(2200);
           } catch (InterruptedException e) {
 
           }
@@ -341,6 +1758,78 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
   }
 
+  // NEW METHOD: Send NV9 SSP command
+  @RequiresApi(api = Build.VERSION_CODES.N)
+  @PluginMethod
+  public void sendNV9Command(PluginCall call) {
+    if (!isNV9Mode) {
+      call.reject("Not in NV9 mode");
+      return;
+    }
+
+    String command = call.getString("command");
+    String args = call.getString("args");
+
+    if (command == null) {
+      call.reject("Command is required");
+      return;
+    }
+
+    Log.d(TAG, "sendNV9Command: " + command);
+
+    try {
+      CompletableFuture<JSONObject> future;
+
+      if (args != null && !args.isEmpty()) {
+        JSONObject jsonArgs = new JSONObject(args);
+        future = sspDevice.command(command, jsonArgs);
+      } else {
+        future = sspDevice.command(command);
+      }
+
+      future.thenAccept(result -> {
+        JSObject ret = null;
+        try {
+          ret = new JSObject(result.toString());
+        } catch (JSONException e) {
+          throw new RuntimeException(e);
+        }
+
+        // Add event name for client-side handling
+        ret.put("event", "nv9CommandResult");
+        ret.put("command", command);
+
+        notifyListeners("nv9CommandResult", ret);
+        call.resolve(ret);
+      }).exceptionally(ex -> {
+        JSObject error = new JSObject();
+        error.put("event", "nv9Error");
+        error.put("command", command);
+        error.put("error", ex.getMessage());
+        notifyListeners("nv9Error", error);
+        call.reject("Command failed: " + ex.getMessage());
+        return null;
+      });
+
+    } catch (JSONException e) {
+      call.reject("Invalid args JSON: " + e.getMessage());
+    }
+  }
+
+  // NEW METHOD: Stop NV9 polling
+  @PluginMethod
+  public void stopNV9Polling(PluginCall call) {
+    stopPolling();
+    JSObject ret = new JSObject();
+    ret.put("success", true);
+    ret.put("message", "NV9 polling stopped");
+    call.resolve(ret);
+  }
+
+
+
+
+  ///  END
 
   // VMC
 
@@ -758,44 +2247,63 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     call.resolve(ret);
   }
 
+  @RequiresApi(api = Build.VERSION_CODES.N)
   @PluginMethod
   public void close(PluginCall call) {
-    Log.d(TAG, "close invoked: " + call.getData().toString());
-    String portName = call.getString("portName");
-    JSObject ret = new JSObject();
+    stopPolling();
+    isNV9Mode = false;
 
     synchronized (this) {
-      if (serialPort != null && (portName == null || portName.equals(serialPort.getDevicePath()))) {
+      if (serialPort != null) {
         try {
           serialPort.close();
           serialPort = null;
-          Log.d(TAG, "Serial closed");
-          ret.put("message", "Serial connection closed");
-        } catch (IOException e) {
-          call.reject("Failed to close serial: " + e.getMessage());
-          return;
+          Log.d(TAG, "Serial port closed");
+          if (call != null) {
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("message", "Serial connection closed");
+            notifyListeners("serialClosed", ret);
+            call.resolve(ret);
+          }
+        } catch (Exception e) {
+          if (call != null) {
+            call.reject("Failed to close serial: " + e.getMessage());
+          }
         }
-      }
-
-      if (usbSerialPort != null && (portName == null || portName.equals(usbSerialPort.getDriver().getDevice().getDeviceName()))) {
+      } else if (usbSerialPort != null) {
         try {
           usbSerialPort.close();
           usbSerialPort = null;
-          Log.d(TAG, "USB serial closed");
-          ret.put("message", "USB serial connection closed");
+          Log.d(TAG, "USB serial port closed");
+          if (call != null) {
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("message", "USB serial connection closed");
+            notifyListeners("usbSerialClosed", ret);
+            call.resolve(ret);
+          }
         } catch (Exception e) {
-          call.reject("Failed to close USB serial: " + e.getMessage());
-          return;
+          if (call != null) {
+            call.reject("Failed to close USB serial: " + e.getMessage());
+          }
+        }
+      } else {
+        if (call != null) {
+          JSObject ret = new JSObject();
+          ret.put("success", true);
+          ret.put("message", "No connection was open");
+          call.resolve(ret);
         }
       }
-
-      if (ret.length() == 0) {
-        ret.put("message", "No connection to close for " + (portName != null ? portName : "any port"));
-      }
-      notifyListeners("connectionClosed", ret);
-      call.resolve(ret);
     }
   }
+  // Helper methods
+
+
+
+
+
 
   private byte[] hexStringToByteArray(String s) {
     int len = s.length();
@@ -834,7 +2342,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
     return sb.toString();
   }
-
 
 
 

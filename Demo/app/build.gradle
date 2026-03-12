@@ -1,0 +1,53 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'org.yourcompany.yourproject'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.json:json:20231013' // For JSONObject/JSONArray
+    implementation 'com.fazecast:jSerialComm:2.10.4' // For cross-platform serial
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.8.1' // Optional for unit tests
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+application {
+    mainClass = 'org.yourcompany.yourproject.Main' // Your console Main class
+}
+// Add this block
+tasks.register('printRuntimeClasspath') {
+    doLast {
+        println configurations.runtimeClasspath.get().asPath
+    }
+}
+tasks.register('fatJar', Jar) {
+    group = 'build'
+    description = 'Creates a single executable fat JAR containing all dependencies'
+
+    archiveBaseName.set('app')
+    archiveClassifier.set('fat')           // ← this adds -fat to the name
+    archiveVersion.set(project.version)
+    archiveExtension.set('jar')
+
+    manifest {
+        attributes 'Main-Class': 'org.yourcompany.yourproject.Main'
+    }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+
+    with jar  // merge the regular jar content (your classes)
+}

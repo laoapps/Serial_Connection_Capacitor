@@ -1,134 +1,188 @@
 package com.laoapps.plugins.serialconnectioncapacitor;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class SSPParser {
-    private static final byte SSP_STX = 0x7F; // Start of packet marker
+  private static final byte STX = 0x7F;      // Start of packet
+  private static final byte ESCAPE = 0x7F;   // Escape byte (same as STX in SSP)
 
-    // Instance variables to maintain parsing state
-    private int counter = 0;         // Tracks the number of bytes processed in the current packet
-    private int checkStuff = 0;      // Flag to check for stuffed bytes (0 or 1)
-    private int packetLength = 0;    // Expected length of the current packet
-    private ByteBuffer buffer;       // Buffer to accumulate packet bytes
-    private final List<byte[]> packets = new ArrayList<>(); // List to store completed packets
+  // Parser states
+  private enum State {
+    WAIT_FOR_STX,      // Waiting for packet start
+    IN_PACKET,         // Reading packet data
+    ESCAPE_NEXT        // Next byte is escaped
+  }
 
-    // Constructor
-    public SSPParser() {
-        reset(); // Initialize state
+  private State state = State.WAIT_FOR_STX;
+  private ByteArrayBuilder packetBuffer = new ByteArrayBuilder();
+  private int expectedLength = 0;
+  private final List<byte[]> completePackets = new ArrayList<>();
+
+  /**
+   * Parses incoming data and returns any complete SSP packets found.
+   * This is a streaming parser - call it repeatedly as data arrives.
+   *
+   * @param data New data chunk to parse
+   * @return List of complete packets found in this chunk
+   */
+  public List<byte[]> parse(byte[] data) {
+    completePackets.clear();
+
+    for (byte b : data) {
+      processByte(b & 0xFF); // Convert to unsigned int for easier comparison
     }
 
-    /**
-     * Parses a chunk of bytes and returns a list of complete SSP packets.
-     * Incomplete packets are retained in the buffer for the next call.
-     *
-     * @param chunk The byte array to parse
-     * @return List of complete SSP packets found in the chunk
-     */
-    public List<byte[]> parse(byte[] chunk) {
-        if (chunk == null || chunk.length == 0) {
-            return new ArrayList<>(); // Return empty list for null or empty input
+    return new ArrayList<>(completePackets);
+  }
+
+  private void processByte(int b) {
+    switch (state) {
+      case WAIT_FOR_STX:
+        if (b == (STX & 0xFF)) {
+          // Found start of packet
+          packetBuffer.reset();
+          packetBuffer.append((byte) b);
+          state = State.IN_PACKET;
         }
+        break;
 
-        packets.clear(); // Clear previous packets
+      case IN_PACKET:
+        if (b == (ESCAPE & 0xFF)) {
+          // Escape byte found - next byte is escaped
+          state = State.ESCAPE_NEXT;
+        } else {
+          // Normal byte
+          packetBuffer.append((byte) b);
 
-        for (byte b : chunk) {
-            if (b == SSP_STX && counter == 0) {
-                // Start of a new packet
-                buffer = ByteBuffer.allocate(1).put(b);
-                counter = 1;
-            } else if (b == SSP_STX && counter == 1) {
-                // Reset if we see STX immediately after another STX (stuffed byte reset)
-                reset();
-            } else {
-                if (checkStuff == 1) {
-                    // Handling the byte after an STX (checking for stuffing)
-                    if (b != SSP_STX) {
-                        // Not a stuffed byte, start a new packet with STX and current byte
-                        buffer = ByteBuffer.allocate(2).put(SSP_STX).put(b);
-                        counter = 2;
-                    } else {
-                        // Stuffed byte (STX followed by STX), append it
-                        buffer = append(buffer, b);
-                        counter++;
-                    }
-                    checkStuff = 0; // Reset stuffing check
-                } else {
-                    // Normal byte processing
-                    if (b == SSP_STX) {
-                        // Potential stuffing or new packet start, set flag to check next byte
-                        checkStuff = 1;
-                    } else {
-                        // Append the byte to the current packet
-                        buffer = append(buffer, b);
-                        counter++;
+          // Check if we have enough bytes to determine packet length
+          if (packetBuffer.size() == 3) {
+            // We have STX + SEQ + LEN
+            expectedLength = (packetBuffer.get(2) & 0xFF) + 5; // LEN + STX + SEQ + LEN + CRC(2)
+          }
 
-                        // Determine packet length when we have 3 bytes (STX, SEQ, LEN)
-                        if (counter == 3) {
-                            packetLength = (buffer.get(2) & 0xFF) + 5; // LEN + STX + SEQ + LEN + CRC (2 bytes)
-                        }
-                    }
-                }
-
-                // Check if we've collected a complete packet
-                if (packetLength > 0 && buffer.capacity() == packetLength) {
-                    packets.add(buffer.array());
-                    reset(); // Prepare for the next packet
-                }
+          // Check if packet is complete
+          if (expectedLength > 0 && packetBuffer.size() == expectedLength) {
+            // Complete packet received
+            byte[] packet = packetBuffer.toByteArray();
+            // Verify CRC before accepting
+            if (verifyCRC(packet)) {
+              completePackets.add(packet);
             }
+            reset();
+          }
+        }
+        break;
+
+      case ESCAPE_NEXT:
+        // This byte is escaped (should be the byte that follows an 0x7F)
+        // In SSP, when 0x7F appears in data, it's sent as 0x7F 0x7F
+        // So we just add the byte (which is the actual data value)
+        packetBuffer.append((byte) b);
+
+        // Check packet length if we just completed the third byte
+        if (packetBuffer.size() == 3) {
+          expectedLength = (packetBuffer.get(2) & 0xFF) + 5;
         }
 
-        return new ArrayList<>(packets); // Return a copy of the packets list
-    }
-
-    /**
-     * Resets the parser state to start processing a new packet.
-     */
-    private void reset() {
-        counter = 0;
-        checkStuff = 0;
-        packetLength = 0;
-        buffer = ByteBuffer.allocate(0); // Clear buffer
-    }
-
-    /**
-     * Appends a byte to the current buffer, resizing as necessary.
-     *
-     * @param original The current buffer
-     * @param b The byte to append
-     * @return A new ByteBuffer with the appended byte
-     */
-    private ByteBuffer append(ByteBuffer original, byte b) {
-        ByteBuffer newBuffer = ByteBuffer.allocate(original.capacity() + 1);
-        newBuffer.put(original.array()).put(b);
-        return newBuffer;
-    }
-
-    /**
-     * Flushes any remaining data in the buffer as a packet, if valid.
-     *
-     * @return List containing the flushed packet, if any
-     */
-    public List<byte[]> flush() {
-        packets.clear();
-        if (buffer.capacity() > 0 && packetLength > 0 && buffer.capacity() == packetLength) {
-            packets.add(buffer.array());
+        // Check if packet is complete
+        if (expectedLength > 0 && packetBuffer.size() == expectedLength) {
+          byte[] packet = packetBuffer.toByteArray();
+          if (verifyCRC(packet)) {
+            completePackets.add(packet);
+          }
+          reset();
+        } else {
+          state = State.IN_PACKET;
         }
-        reset();
-        return new ArrayList<>(packets);
+        break;
+    }
+  }
+
+  /**
+   * Verifies the CRC16 of a complete packet.
+   * Packet format: [STX][SEQ][LEN][DATA...][CRC_LOW][CRC_HIGH]
+   */
+  private boolean verifyCRC(byte[] packet) {
+    if (packet.length < 4) return false;
+
+    // Extract CRC from packet (last 2 bytes)
+    int packetCRC = ((packet[packet.length - 2] & 0xFF) << 8) |
+      (packet[packet.length - 1] & 0xFF);
+
+    // Calculate CRC on packet data (excluding STX and the CRC bytes)
+    byte[] crcData = Arrays.copyOfRange(packet, 1, packet.length - 2);
+    byte[] calculated = SSPUtils.crc16(crcData);
+    int calculatedCRC = ((calculated[0] & 0xFF) << 8) | (calculated[1] & 0xFF);
+
+    return packetCRC == calculatedCRC;
+  }
+
+  /**
+   * Resets the parser state.
+   */
+  private void reset() {
+    state = State.WAIT_FOR_STX;
+    packetBuffer.reset();
+    expectedLength = 0;
+  }
+
+  /**
+   * Flushes any pending data and returns any complete packet that might be in the buffer.
+   * Useful at end of stream.
+   */
+  public List<byte[]> flush() {
+    completePackets.clear();
+
+    // If we have a complete packet in the buffer, try to use it
+    if (packetBuffer.size() > 0 && expectedLength > 0 && packetBuffer.size() == expectedLength) {
+      byte[] packet = packetBuffer.toByteArray();
+      if (verifyCRC(packet)) {
+        completePackets.add(packet);
+      }
     }
 
-    // Utility method for debugging or testing
-    public int getCounter() {
-        return counter;
+    reset();
+    return new ArrayList<>(completePackets);
+  }
+
+  /**
+   * Helper class for building byte arrays efficiently.
+   */
+  private static class ByteArrayBuilder {
+    private byte[] buffer = new byte[256];
+    private int length = 0;
+
+    public void append(byte b) {
+      ensureCapacity(length + 1);
+      buffer[length++] = b;
     }
 
-    public int getPacketLength() {
-        return packetLength;
+    private void ensureCapacity(int minCapacity) {
+      if (minCapacity > buffer.length) {
+        int newCapacity = Math.max(buffer.length * 2, minCapacity);
+        buffer = Arrays.copyOf(buffer, newCapacity);
+      }
     }
 
-    public byte[] getCurrentBuffer() {
-        return buffer.array();
+    public byte get(int index) {
+      if (index < 0 || index >= length) {
+        throw new IndexOutOfBoundsException("Index: " + index + ", Length: " + length);
+      }
+      return buffer[index];
     }
+
+    public int size() {
+      return length;
+    }
+
+    public byte[] toByteArray() {
+      return Arrays.copyOf(buffer, length);
+    }
+
+    public void reset() {
+      length = 0;
+    }
+  }
 }
