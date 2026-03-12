@@ -195,7 +195,7 @@ export class SerialConnectionCapacitorWeb extends WebPlugin implements SerialPor
   }
 
   addListener(eventName: SerialPortEventTypes, listenerFunc: (event: any) => void): Promise<PluginListenerHandle> & PluginListenerHandle {
-    console.log('Adding listener for:', eventName);
+    console.log('Adding listener for:', eventName,listenerFunc);
     throw new Error('addListener is not supported on the web platform.');
   }
 
