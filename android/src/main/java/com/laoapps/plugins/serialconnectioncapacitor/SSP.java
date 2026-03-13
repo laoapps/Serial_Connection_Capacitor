@@ -166,6 +166,7 @@ public class SSP {
    */
   @RequiresApi(api = Build.VERSION_CODES.N)
   public void close() throws Exception {
+    stopPoll();
     if (port != null) {
       port.closePort();
       port = null;
@@ -551,9 +552,6 @@ public class SSP {
         emitEvent("INITIALIZED", new JSONObject().put("success", true));
 
         // After enable() in initSSP, add:
-// 8. Start polling
-        startPoll();
-        System.out.println("Polling started - device ready to accept notes");
 
       } catch (Exception e) {
         System.err.println("Initialization failed: " + e.getMessage());
@@ -582,7 +580,7 @@ public class SSP {
       while (polling) {
         try {
           command("POLL").get(timeout, TimeUnit.MILLISECONDS);
-          Thread.sleep(150);
+          Thread.sleep(200);
         } catch (Exception e) {
           System.err.println("Poll failed: " + e.getMessage());
         }
@@ -935,6 +933,7 @@ public class SSP {
           case "POLL":
             JSONArray events = new JSONArray();
             int k = 0;
+            int disabledCount =0;
             while (k < dataSub.length) {
               int code = dataSub[k] & 0xFF;
               String eventName = SSPUtils.statusDesc.getOrDefault(code, "UNKNOWN");
@@ -993,6 +992,11 @@ public class SSP {
                 case "CASHBOX_REMOVED":
                 case "CASHBOX_REPLACED":
                   // These are just status events with no extra data
+
+//                  if(disabledCount++>=10){
+//                    enable();
+//                    disabledCount=0;
+//                  }
                   k += 1;
                   break;
 
