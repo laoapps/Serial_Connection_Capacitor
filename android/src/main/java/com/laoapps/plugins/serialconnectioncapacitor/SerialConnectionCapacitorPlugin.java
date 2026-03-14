@@ -49,7 +49,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 @CapacitorPlugin(name = "SerialCapacitor")
-public class SerialConnectionCapacitorPlugin extends Plugin {
+public class
+SerialConnectionCapacitorPlugin extends Plugin {
   private static final String TAG = "SerialConnCap";
 
 
@@ -65,7 +66,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   private final Queue<byte[]> commandQueue = new LinkedList<>();
   private byte packNoCounter = 0;
   private SSP sspDevice;
-  private boolean isNV9Mode = false;
   private Thread pollThread;
   private boolean isNV9AutoDetectEnabled = false;
   static {
@@ -319,7 +319,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
       // Check current connection status
       ret.put("usbSerialPortOpen", usbSerialPort != null);
-      ret.put("isNV9Mode", isNV9Mode);
 //      ret.put("isPolling", isPolling);
       ret.put("serialPortOpen", serialPort != null);
 
@@ -343,8 +342,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         close(null);
       }
 
-      isNV9Mode = false;
-//      isPolling = false;
       usbSerialPort = null;
 
       JSObject event = new JSObject();
@@ -450,7 +447,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
       Log.d(TAG, "Auto-opened NV9 on " + portName);
 
-      isNV9Mode = true;
 
       // CRITICAL: Initialize SSP with the USB port
       sspDevice.setUsbSerialPort(usbSerialPort);
@@ -465,7 +461,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     } catch (Exception e) {
       usbSerialPort = null;
-      isNV9Mode = false;
       call.reject("Auto-open failed: " + e.getMessage());
     }
   }
@@ -863,19 +858,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         notifyListeners("serialOpened", ret);
 
 
-
-        // AUTO-CONNECT USB after successful serial connection
-//        if (autoConnectUSB) {
-//          Log.d(TAG, "Auto-connecting USB after serial success...");
-//          autoConnectUSBAfterSerial();
-//        }
-        // If this is an NV9 device, auto-initialize
-//        if (isNV9) {
-//          Log.d(TAG, "NV9 mode enabled for serial port");
-//          isNV9Mode = true;
-//          initializeSSPAsync();
-//        }
-
         call.resolve(ret);
         return;
 
@@ -917,24 +899,14 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
       Log.d(TAG, "USB port configured successfully");
 
-      isNV9Mode = true;
+      // Don't set isNV9Mode - let UI handle state
 
-      // Set USB port for SSP
-      if (sspDevice == null) {
-        sspDevice = new SSP();
-      }else{
-        try {
-          sspDevice.stopPoll();
-          sspDevice.close();
-        } catch (Exception e) {
-          Log.e(TAG, "Error closing existing SSP: " + e.getMessage());
-        }
-      }
+      // Create new SSP instance
+      sspDevice = new SSP();
       sspDevice.setUsbSerialPort(usbSerialPort);
 
-      // Initialize SSP (this will start polling internally)
-      Log.d(TAG, "Initializing SSP...");
-      initializeSSPAsync();  // Keep only this one
+      // Initialize SSP
+      initializeSSPAsync();
 
       JSObject ret = new JSObject();
       ret.put("success", true);
@@ -945,13 +917,25 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     } catch (Exception e) {
       Log.e(TAG, "Failed to open USB: " + e.getMessage());
-      usbSerialPort = null;
+      safeCloseUSB();
       return false;
     }
   }
-// Update your permission receiver to handle auto-connect
-// In your usbPermissionReceiver, add this after permission is granted:
 
+  private void safeCloseUSB() {
+    try {
+      if (sspDevice != null) {
+        sspDevice.stopPoll();
+        sspDevice = null;
+      }
+      if (usbSerialPort != null) {
+        usbSerialPort.close();
+        usbSerialPort = null;
+      }
+    } catch (Exception e) {
+      Log.e(TAG, "Error closing USB: " + e.getMessage());
+    }
+  }
 
 
 
@@ -1008,7 +992,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
           Log.d(TAG, "USB opened successfully: " + portName);
 
-          isNV9Mode = true;
 
           // Initialize SSP
           initializeSSPAsync();
@@ -1029,7 +1012,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
       Log.e(TAG, "Failed to open USB: " + e.getMessage());
       e.printStackTrace();
       usbSerialPort = null;
-      isNV9Mode = false;
       call.reject("Failed to open USB: " + e.getMessage());
     }
   }
@@ -1337,13 +1319,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         ret.put("baudRate", baudRate);
         notifyListeners("usbSerialOpened", ret);
 
-        // If this is an NV9 device, auto-initialize
-        if (isNV9) {
-          isNV9Mode = true;
-          // You'll need to set the input/output streams for SSP
-          initializeSSPAsync();
-        }
-
         call.resolve(ret);
 
       } catch (Exception e) {
@@ -1408,10 +1383,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   @RequiresApi(api = Build.VERSION_CODES.N)
   @PluginMethod
   public void sendNV9Command(PluginCall call) {
-    if (!isNV9Mode) {
-      call.reject("Not in NV9 mode");
-      return;
-    }
+
 
     String command = call.getString("command");
     String args = call.getString("args");
@@ -1486,141 +1458,108 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         statusEvent.put("timestamp", System.currentTimeMillis());
         notifyListeners("nv9Event", statusEvent);
 
-        // Step 1: Stop polling
-        Log.d(TAG, "Stopping NV9 polling...");
-//        stopPolling();
-        sspDevice.stopPoll();
-
-        // Step 2: Disable SSP if enabled
-        if (sspDevice != null) {
-          try {
-            if (sspDevice.isEnabled()) {
-              Log.d(TAG, "Disabling SSP device...");
-              sspDevice.disable().get(3000, TimeUnit.MILLISECONDS);
-            }
-          } catch (Exception e) {
-            Log.e(TAG, "Error disabling SSP: " + e.getMessage());
-          }
-
-          // Small delay
-          Thread.sleep(500);
-        }
-
-        // Step 3: Close USB connection properly
+        // Clean up existing connection if any
         if (usbSerialPort != null) {
           try {
             Log.d(TAG, "Closing USB connection...");
+            if (sspDevice != null) {
+              sspDevice.stopPoll();
+            }
             usbSerialPort.close();
-            Log.d(TAG, "USB connection closed");
           } catch (Exception e) {
             Log.e(TAG, "Error closing USB: " + e.getMessage());
           } finally {
             usbSerialPort = null;
+            sspDevice = null;  // Also clear SSP
           }
         }
-
-        // Reset NV9 mode flag
-        isNV9Mode = false;
 
         // Give hardware time to reset
         Log.d(TAG, "Waiting for hardware reset...");
         Thread.sleep(2000);
 
-        // Step 4: Scan for NV9 devices
+        // Scan for NV9 devices
         Log.d(TAG, "Scanning for NV9 devices...");
         List<UsbSerialDriver> drivers = findNV9Drivers();
 
         if (drivers.isEmpty()) {
           Log.e(TAG, "No NV9 devices found after reinit");
-
-          JSObject errorEvent = new JSObject();
-          errorEvent.put("event", "nv9Error");
-          errorEvent.put("error", "No NV9 device found after reinit");
-          errorEvent.put("timestamp", System.currentTimeMillis());
-          notifyListeners("nv9Event", errorEvent);
-
-          JSObject ret = new JSObject();
-          ret.put("success", false);
-          ret.put("message", "No NV9 device found");
-          ret.put("command", "reinit");
-          call.resolve(ret);
+          notifyError("nv9Error", "No NV9 device found after reinit");
+          resolveCall(call, false, "No NV9 device found");
           return;
         }
 
-        // Step 5: Try to connect to the first device
+        // Connect to first device
         UsbSerialDriver driver = drivers.get(0);
         UsbDevice device = driver.getDevice();
         String portName = device.getDeviceName();
 
         Log.d(TAG, "Found NV9 device: " + portName);
 
-        // Step 6: Check permission
+        // Check permission
         if (!usbManager.hasPermission(device)) {
           Log.d(TAG, "Requesting USB permission for reinit...");
-
-          // Store the call to resolve later
           pendingPermissionCall = call;
           pendingUSBDevice = device;
-
-          // Request permission
           usbManager.requestPermission(device, usbPermissionIntent);
 
-          // Update status
-          JSObject permEvent = new JSObject();
-          permEvent.put("event", "nv9Status");
-          permEvent.put("message", "Requesting USB permission...");
-          permEvent.put("timestamp", System.currentTimeMillis());
-          notifyListeners("nv9Event", permEvent);
-
-          return; // Will continue in permission receiver
+          notifyStatus("nv9Status", "Requesting USB permission...");
+          return;
         }
 
-        // Step 7: Open USB connection
+        // Open USB connection
         boolean success = attemptUSBOpen(driver, device);
 
         if (success) {
           Log.d(TAG, "✓ NV9 reinitialized successfully");
+
+          // Don't set isNV9Mode - let UI track state
 
           JSObject ret = new JSObject();
           ret.put("success", true);
           ret.put("message", "NV9 reinitialized successfully");
           ret.put("portName", portName);
           ret.put("command", "reinit");
-          ret.put("timestamp", System.currentTimeMillis());
-
-          // Notify success
-          JSObject successEvent = new JSObject();
-          successEvent.put("event", "nv9Ready");
-          successEvent.put("message", "NV9 reinitialized and ready");
-          successEvent.put("timestamp", System.currentTimeMillis());
-          notifyListeners("nv9Event", successEvent);
-
           call.resolve(ret);
+
+          notifyStatus("nv9Ready", "NV9 initialized and ready");
 
         } else {
           Log.e(TAG, "✗ Failed to reinitialize NV9");
-
-          JSObject ret = new JSObject();
-          ret.put("success", false);
-          ret.put("message", "Failed to reinitialize NV9");
-          ret.put("command", "reinit");
-          call.resolve(ret);
+          resolveCall(call, false, "Failed to reinitialize NV9");
         }
 
       } catch (Exception e) {
         Log.e(TAG, "Error during NV9 reinit: " + e.getMessage());
-        e.printStackTrace();
-
-        JSObject ret = new JSObject();
-        ret.put("success", false);
-        ret.put("message", "Reinit failed: " + e.getMessage());
-        ret.put("command", "reinit");
-        call.resolve(ret);
+        resolveCall(call, false, "Reinit failed: " + e.getMessage());
       }
     }).start();
   }
 
+  // Helper methods to reduce code duplication
+  private void notifyStatus(String event, String message) {
+    JSObject statusEvent = new JSObject();
+    statusEvent.put("event", event);
+    statusEvent.put("message", message);
+    statusEvent.put("timestamp", System.currentTimeMillis());
+    notifyListeners("nv9Event", statusEvent);
+  }
 
+  private void notifyError(String event, String error) {
+    JSObject errorEvent = new JSObject();
+    errorEvent.put("event", event);
+    errorEvent.put("error", error);
+    errorEvent.put("timestamp", System.currentTimeMillis());
+    notifyListeners("nv9Event", errorEvent);
+  }
+
+  private void resolveCall(PluginCall call, boolean success, String message) {
+    JSObject ret = new JSObject();
+    ret.put("success", success);
+    ret.put("message", message);
+    ret.put("command", "reinit");
+    call.resolve(ret);
+  }
 
 
   // NEW METHOD: Stop NV9 polling
@@ -2060,7 +1999,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   public void close(PluginCall call) {
 //    stopPolling();
     sspDevice.stopPoll();
-    isNV9Mode = false;
 
     synchronized (this) {
       if (serialPort != null) {

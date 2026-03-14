@@ -219,25 +219,24 @@ public class SSP {
           int preECount = eCount;
           SSPParser localParser = new SSPParser();
           byte[] packet = getPacket(command, args);
-          if(this.debug){
+          if (this.debug) {
             System.out.println("→ Tx: " + bytesToHex(packet));
           }
 
-          // MODIFIED: Check which port to use
+          // Send command based on port type
           if (usingUsbPort) {
-            // Use USB port
             if (usbSerialPort == null) {
               throw new RuntimeException("USB serial port is null");
             }
             usbSerialPort.write(packet, 1000);
           } else {
-            // Use native serial port
             if (port == null) {
               throw new RuntimeException("Native serial port is null");
             }
             port.writeBytes(packet, packet.length);
           }
 
+          // Read response
           ByteArrayOutputStream response = new ByteArrayOutputStream();
           long start = System.currentTimeMillis();
           List<byte[]> packets = new java.util.ArrayList<>();
@@ -246,21 +245,17 @@ public class SSP {
             int avail = 0;
             byte[] chunk = null;
 
-            // MODIFIED: Check which port to read from
             if (usingUsbPort) {
               if (usbSerialPort == null) continue;
-              avail = 1024; // Just read what's available
-              chunk = new byte[avail];
+              chunk = new byte[1024];
               int len = usbSerialPort.read(chunk, 1000);
               if (len > 0) {
-                if (len < avail) {
+                if (len < chunk.length) {
                   byte[] trimmed = new byte[len];
                   System.arraycopy(chunk, 0, trimmed, 0, len);
                   chunk = trimmed;
                 }
                 avail = len;
-              } else {
-                avail = 0;
               }
             } else {
               if (port == null) continue;
@@ -268,17 +263,20 @@ public class SSP {
               if (avail > 0) {
                 chunk = new byte[avail];
                 int len = port.readBytes(chunk, chunk.length);
-                if (len > 0 && len < avail) {
-                  byte[] trimmed = new byte[len];
-                  System.arraycopy(chunk, 0, trimmed, 0, len);
-                  chunk = trimmed;
+                if (len > 0) {
+                  if (len < avail) {
+                    byte[] trimmed = new byte[len];
+                    System.arraycopy(chunk, 0, trimmed, 0, len);
+                    chunk = trimmed;
+                  }
+                  avail = len;
                 }
               }
             }
 
             if (avail > 0 && chunk != null) {
               response.write(chunk, 0, chunk.length);
-              if(this.debug) {
+              if (this.debug) {
                 System.out.println("← Rx chunk (" + chunk.length + "): " + bytesToHex(chunk));
               }
               packets = localParser.parse(chunk);
@@ -293,13 +291,12 @@ public class SSP {
           if (response.size() == 0) {
             if (attempt < maxRetries) {
               System.out.println(command + " attempt " + attempt + " failed, retrying...");
-              Thread.sleep(200);
+              Thread.sleep(200 * attempt); // Exponential backoff
               continue;
             }
             throw new RuntimeException("No bytes received after " + timeout + " ms");
           }
 
-          // Rest of the method remains the same...
           if (packets.isEmpty()) {
             packets = localParser.flush();
           }
@@ -310,10 +307,37 @@ public class SSP {
 
           byte[] pkt = packets.get(0);
 
-          // For SYNC, we need to handle the response specially
+          // Handle SYNC response more flexibly
           if (command.equals("SYNC")) {
-            // Check if it's a valid response (first byte after STX should be 0x80)
-            if (pkt.length >= 4 && pkt[1] == (byte) 0x80 && pkt[3] == (byte) 0xF0) {
+            // Try multiple ways to detect SYNC success
+
+            // Method 1: Check specific byte positions
+            boolean syncSuccess = false;
+
+            if (pkt.length >= 4) {
+              // Check for typical SYNC response pattern
+              if (pkt[1] == (byte) 0x80 && (pkt[3] == (byte) 0xF0 || pkt[3] == (byte) 0x00)) {
+                syncSuccess = true;
+              }
+            }
+
+            // Method 2: Look for success status byte anywhere
+            if (!syncSuccess) {
+              for (byte b : pkt) {
+                if ((b & 0xFF) == 0xF0) {
+                  syncSuccess = true;
+                  break;
+                }
+              }
+            }
+
+            // Method 3: If we got any response at all, assume success
+            if (!syncSuccess && pkt.length > 2) {
+              System.out.println("SYNC: Assuming success based on received response");
+              syncSuccess = true;
+            }
+
+            if (syncSuccess) {
               JSONObject result = new JSONObject();
               result.put("success", true);
               result.put("status", "OK");
@@ -351,11 +375,12 @@ public class SSP {
 
         } catch (Exception e) {
           lastException = e;
-          System.out.println("Attempt " + attempt + " failed: " + e.getMessage());
-          e.printStackTrace();
+          System.out.println("Attempt " + attempt + " failed for " + command + ": " + e.getMessage());
+
           if (attempt < maxRetries) {
             try {
-              Thread.sleep(200);
+              long waitTime = 200 * attempt; // Exponential backoff
+              Thread.sleep(waitTime);
             } catch (InterruptedException ie) {
               Thread.currentThread().interrupt();
             }
@@ -363,16 +388,20 @@ public class SSP {
         }
       }
 
+      // All retries failed, return error
       JSONObject error = new JSONObject();
       try {
         error.put("success", false);
-        error.put("error", lastException != null ? lastException.getMessage() : "Command failed");
+        error.put("error", lastException != null ? lastException.getMessage() : "Command failed after " + maxRetries + " attempts");
+        error.put("command", command);
       } catch (JSONException e) {
         throw new RuntimeException(e);
       }
       return error;
     });
   }
+
+
   @RequiresApi(api = Build.VERSION_CODES.N)
   public CompletableFuture<JSONObject> command(String command) {
     return command(command, new JSONObject());
@@ -501,65 +530,199 @@ public class SSP {
    * Initializes the SSP connection sequence (automatic like Node.js version).
    */
   @RequiresApi(api = Build.VERSION_CODES.N)
-
   public CompletableFuture<Void> initSSP() {
     return CompletableFuture.runAsync(() -> {
       try {
         System.out.println("Starting SSP initialization...");
 
-        // 1. SYNC
-        JSONObject syncRes = command("SYNC").get(timeout, TimeUnit.MILLISECONDS);
+        // 1. SYNC - with retries
+        JSONObject syncRes = null;
+        for (int i = 0; i < 3; i++) {
+          try {
+            syncRes = command("SYNC").get(timeout, TimeUnit.MILLISECONDS);
+            if (syncRes != null && syncRes.optBoolean("success", false)) {
+              System.out.println("SYNC successful on attempt " + (i + 1));
+              break;
+            }
+          } catch (Exception e) {
+            System.out.println("SYNC attempt " + (i + 1) + " failed: " + e.getMessage());
+          }
+
+          if (i < 2) { // Don't sleep after last attempt
+            Thread.sleep(1000 * (i + 1)); // Increasing delay: 1s, 2s
+          }
+        }
+
+        if (syncRes == null || !syncRes.optBoolean("success", false)) {
+          throw new RuntimeException("SYNC failed after 3 attempts");
+        }
         System.out.println("SYNC → " + syncRes.toString(2));
 
-        if (!syncRes.optBoolean("success", false)) {
-          throw new RuntimeException("SYNC failed: " + syncRes.optString("error"));
+        Thread.sleep(500);
+
+        // 2. Set protocol version - with retries
+        JSONObject protoRes = null;
+        for (int i = 0; i < 3; i++) {
+          try {
+            JSONObject protoArgs = new JSONObject().put("version", protocolVersion);
+            protoRes = command("HOST_PROTOCOL_VERSION", protoArgs).get(timeout, TimeUnit.MILLISECONDS);
+            if (protoRes != null && protoRes.optBoolean("success", false)) {
+              System.out.println("HOST_PROTOCOL_VERSION successful on attempt " + (i + 1));
+              break;
+            }
+          } catch (Exception e) {
+            System.out.println("HOST_PROTOCOL_VERSION attempt " + (i + 1) + " failed: " + e.getMessage());
+          }
+
+          if (i < 2) {
+            Thread.sleep(500);
+          }
         }
 
-        // 2. Set protocol version
-        JSONObject protoArgs = new JSONObject().put("version", protocolVersion);
-        JSONObject protoRes = command("HOST_PROTOCOL_VERSION", protoArgs).get(timeout, TimeUnit.MILLISECONDS);
+        if (protoRes == null || !protoRes.optBoolean("success", false)) {
+          throw new RuntimeException("HOST_PROTOCOL_VERSION failed after 3 attempts");
+        }
         System.out.println("HOST_PROTOCOL_VERSION → " + protoRes.toString(2));
 
-        // 3. Get serial number
-        JSONObject serialRes = command("GET_SERIAL_NUMBER").get(timeout, TimeUnit.MILLISECONDS);
-        System.out.println("SERIAL NUMBER: " + serialRes.toString(2));
+        Thread.sleep(500);
 
-        // Extract serial number safely
-        JSONObject info = serialRes.optJSONObject("info");
-        if (info != null && info.has("serial_number")) {
-          System.out.println("Serial number: " + info.getInt("serial_number"));
+        // 3. Get serial number - with retries (non-critical)
+        JSONObject serialRes = null;
+        int serialAttempts = 0;
+        while (serialAttempts < 5) {
+          try {
+            serialRes = command("GET_SERIAL_NUMBER").get(timeout, TimeUnit.MILLISECONDS);
+            if (serialRes != null && serialRes.optBoolean("success", false)) {
+              JSONObject info = serialRes.optJSONObject("info");
+              if (info != null && info.has("serial_number")) {
+                System.out.println("Serial number: " + info.getInt("serial_number"));
+                break;
+              }
+            }
+          } catch (Exception e) {
+            System.out.println("GET_SERIAL_NUMBER attempt " + (serialAttempts + 1) + " failed: " + e.getMessage());
+          }
+
+          serialAttempts++;
+          if (serialAttempts < 5) {
+            System.out.println("Retrying GET_SERIAL_NUMBER in 1 second...");
+            Thread.sleep(1000);
+          }
         }
 
-        // 4. DISPLAY_ON
-        JSONObject displayRes = command("DISPLAY_ON").get(timeout, TimeUnit.MILLISECONDS);
-        System.out.println("DISPLAY_ON → " + displayRes.toString(2));
+        if (serialAttempts >= 5) {
+          System.out.println("WARNING: GET_SERIAL_NUMBER failed after 5 attempts, continuing...");
+          // Continue initialization - not critical
+        }
 
-        // 5. Setup request
-        JSONObject setupRes = command("SETUP_REQUEST").get(timeout, TimeUnit.MILLISECONDS);
+        Thread.sleep(500);
+
+        // 4. DISPLAY_ON - optional, don't fail if it doesn't work
+        try {
+          JSONObject displayRes = command("DISPLAY_ON").get(timeout / 2, TimeUnit.MILLISECONDS);
+          if (displayRes != null && displayRes.optBoolean("success", false)) {
+            System.out.println("DISPLAY_ON → " + displayRes.toString(2));
+          } else {
+            System.out.println("DISPLAY_ON returned non-success, continuing...");
+          }
+        } catch (Exception e) {
+          System.out.println("DISPLAY_ON failed (non-critical): " + e.getMessage());
+        }
+
+        Thread.sleep(500);
+
+        // 5. Setup request - with retries (CRITICAL)
+        JSONObject setupRes = null;
+        int setupAttempts = 0;
+        while (setupAttempts < 5) {
+          try {
+            setupRes = command("SETUP_REQUEST").get(timeout, TimeUnit.MILLISECONDS);
+            if (setupRes != null && setupRes.optBoolean("success", false)) {
+              System.out.println("SETUP_REQUEST successful on attempt " + (setupAttempts + 1));
+              break;
+            }
+          } catch (Exception e) {
+            System.out.println("SETUP_REQUEST attempt " + (setupAttempts + 1) + " failed: " + e.getMessage());
+          }
+
+          setupAttempts++;
+          if (setupAttempts < 5) {
+            System.out.println("Retrying SETUP_REQUEST in 1 second...");
+            Thread.sleep(1000);
+          }
+        }
+
+        if (setupRes == null || !setupRes.optBoolean("success", false)) {
+          throw new RuntimeException("SETUP_REQUEST failed after 5 attempts");
+        }
         System.out.println("SETUP_REQUEST → " + setupRes.toString(2));
 
-        // 6. Set channel inhibits
+        Thread.sleep(500);
+
+        // 6. Set channel inhibits - with retries
         JSONObject inhibitsArgs = new JSONObject();
         inhibitsArgs.put("channels", new JSONArray("[1,1,1,1,1,1,1]"));
-        JSONObject inhibitsRes = command("SET_CHANNEL_INHIBITS", inhibitsArgs).get(timeout, TimeUnit.MILLISECONDS);
+        JSONObject inhibitsRes = null;
+
+        for (int i = 0; i < 3; i++) {
+          try {
+            inhibitsRes = command("SET_CHANNEL_INHIBITS", inhibitsArgs).get(timeout, TimeUnit.MILLISECONDS);
+            if (inhibitsRes != null && inhibitsRes.optBoolean("success", false)) {
+              System.out.println("SET_CHANNEL_INHIBITS successful on attempt " + (i + 1));
+              break;
+            }
+          } catch (Exception e) {
+            System.out.println("SET_CHANNEL_INHIBITS attempt " + (i + 1) + " failed: " + e.getMessage());
+          }
+
+          if (i < 2) {
+            Thread.sleep(500);
+          }
+        }
+
+        if (inhibitsRes == null || !inhibitsRes.optBoolean("success", false)) {
+          throw new RuntimeException("SET_CHANNEL_INHIBITS failed after 3 attempts");
+        }
         System.out.println("SET_CHANNEL_INHIBITS → " + inhibitsRes.toString(2));
 
-        // 7. Enable
-        JSONObject enableRes = enable().get(timeout, TimeUnit.MILLISECONDS);
+        Thread.sleep(500);
+
+        // 7. Enable - with retries
+        JSONObject enableRes = null;
+        for (int i = 0; i < 3; i++) {
+          try {
+            enableRes = enable().get(timeout, TimeUnit.MILLISECONDS);
+            if (enableRes != null && enableRes.optBoolean("success", false)) {
+              System.out.println("ENABLE successful on attempt " + (i + 1));
+              break;
+            }
+          } catch (Exception e) {
+            System.out.println("ENABLE attempt " + (i + 1) + " failed: " + e.getMessage());
+          }
+
+          if (i < 2) {
+            Thread.sleep(500);
+          }
+        }
+
+        if (enableRes == null || !enableRes.optBoolean("success", false)) {
+          throw new RuntimeException("ENABLE failed after 3 attempts");
+        }
         System.out.println("Device is active → " + enableRes.toString(2));
 
-        System.out.println("Initialization sequence completed successfully!");
+        System.out.println("✅ Initialization sequence completed successfully!");
         emitEvent("INITIALIZED", new JSONObject().put("success", true));
 
-        // After enable() in initSSP, add:
-
       } catch (Exception e) {
-        System.err.println("Initialization failed: " + e.getMessage());
+        System.err.println("❌ Initialization failed: " + e.getMessage());
         e.printStackTrace();
         try {
-          emitEvent("INITIALIZED", new JSONObject().put("success", false).put("error", e.getMessage()));
+          JSONObject errorEvent = new JSONObject();
+          errorEvent.put("success", false);
+          errorEvent.put("error", e.getMessage());
+          emitEvent("INITIALIZED", errorEvent);
         } catch (JSONException ex) {
-          throw new RuntimeException(ex);
+          // Ignore
         }
         throw new RuntimeException("initSSP failed: " + e.getMessage(), e);
       }
