@@ -73,7 +73,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   }
   private static final String NV9_DEVICE_HINT = "NV9";
   private volatile boolean autoReadingStarted = false;
-  private SSP ssp;
   @RequiresApi(api = Build.VERSION_CODES.N)
   @SuppressLint("UnspecifiedRegisterReceiverFlag")
   @Override
@@ -110,15 +109,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
             if (pendingUSBDevice != null && pendingUSBDevice.equals(device)) {
               Log.d(TAG, "Auto-connecting pending USB device after permission grant");
 
-              // Find driver and connect
-//              List<UsbSerialDriver> drivers = findNV9Drivers();
-//              for (UsbSerialDriver driver : drivers) {
-//                if (driver.getDevice().equals(device)) {
-//                  attemptUSBOpen(driver, device);
-//                  pendingUSBDevice = null;
-//                  break;
-//                }
-//              }
+
             }
 
             // Check if this is an NV9 device for notification
@@ -874,10 +865,10 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
 
         // AUTO-CONNECT USB after successful serial connection
-        if (autoConnectUSB) {
-          Log.d(TAG, "Auto-connecting USB after serial success...");
-          autoConnectUSBAfterSerial();
-        }
+//        if (autoConnectUSB) {
+//          Log.d(TAG, "Auto-connecting USB after serial success...");
+//          autoConnectUSBAfterSerial();
+//        }
         // If this is an NV9 device, auto-initialize
 //        if (isNV9) {
 //          Log.d(TAG, "NV9 mode enabled for serial port");
@@ -906,89 +897,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   /**
    * Auto-connect to USB device after serial connection is established
    */
-  @RequiresApi(api = Build.VERSION_CODES.N)
-  private void autoConnectUSBAfterSerial() {
-    new Thread(() -> {
-      try {
-        Log.d(TAG, "=== Starting USB auto-connect after serial ===");
-
-        // Small delay to let serial initialize
-        Thread.sleep(1000);
-
-        // Find USB NV9 devices
-        List<UsbSerialDriver> drivers = findNV9Drivers();
-
-        if (drivers.isEmpty()) {
-          Log.d(TAG, "No USB NV9 devices found for auto-connect");
-
-          JSObject event = new JSObject();
-          event.put("event", "usbAutoConnectFailed");
-          event.put("reason", "No NV9 devices found");
-          notifyListeners("usbDeviceEvent", event);
-          return;
-        }
-
-        Log.d(TAG, "Found " + drivers.size() + " potential USB NV9 devices");
-
-        // Try each device
-        for (UsbSerialDriver driver : drivers) {
-          UsbDevice device = driver.getDevice();
-          String usbPortName = device.getDeviceName();
-
-          Log.d(TAG, "Attempting to connect to USB: " + usbPortName);
-
-          // Check if we already have a USB connection
-          if (usbSerialPort != null) {
-            Log.d(TAG, "USB already connected, skipping");
-            return;
-          }
-
-          // Check permission
-          if (!usbManager.hasPermission(device)) {
-            Log.d(TAG, "USB permission needed for: " + usbPortName + " - requesting...");
-
-            // Store for later when permission is granted
-            pendingUSBDevice = device;
-
-            // Notify that permission is needed
-            JSObject event = new JSObject();
-            event.put("event", "usbPermissionNeeded");
-            event.put("deviceName", usbPortName);
-            event.put("vendorId", device.getVendorId());
-            event.put("productId", device.getProductId());
-            notifyListeners("usbDeviceEvent", event);
-
-            // Request permission
-            usbManager.requestPermission(device, usbPermissionIntent);
-
-            // Wait a bit for permission (will continue in receiver)
-            Thread.sleep(2000);
-            continue;
-          }
-
-          // Try to open USB connection
-          boolean opened = attemptUSBOpen(driver, device);
-          if (opened) {
-            Log.d(TAG, "✓ USB auto-connect successful: " + usbPortName);
-
-            JSObject event = new JSObject();
-            event.put("event", "usbAutoConnected");
-            event.put("deviceName", usbPortName);
-            event.put("success", true);
-            notifyListeners("usbDeviceEvent", event);
-
-            return; // Success, stop trying
-          }
-        }
-
-        Log.d(TAG, "USB auto-connect completed - no successful connections");
-
-      } catch (Exception e) {
-        Log.e(TAG, "Error in USB auto-connect: " + e.getMessage());
-        e.printStackTrace();
-      }
-    }).start();
-  }
 
   // Add this class variable
   private UsbDevice pendingUSBDevice = null;
@@ -1015,8 +923,12 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
       if (sspDevice == null) {
         sspDevice = new SSP();
       }else{
-        sspDevice.stopPoll();
-        sspDevice.close();
+        try {
+          sspDevice.stopPoll();
+          sspDevice.close();
+        } catch (Exception e) {
+          Log.e(TAG, "Error closing existing SSP: " + e.getMessage());
+        }
       }
       sspDevice.setUsbSerialPort(usbSerialPort);
 
@@ -1040,24 +952,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 // Update your permission receiver to handle auto-connect
 // In your usbPermissionReceiver, add this after permission is granted:
 
-/*
-In the onReceive method where permission is granted, add:
 
-// If we have a pending USB device from auto-connect
-if (pendingUSBDevice != null && pendingUSBDevice.equals(device)) {
-    Log.d(TAG, "Auto-connecting pending USB device after permission grant");
-
-    // Find driver and connect
-    List<UsbSerialDriver> drivers = findNV9Drivers();
-    for (UsbSerialDriver driver : drivers) {
-        if (driver.getDevice().equals(device)) {
-            attemptUSBOpen(driver, device);
-            pendingUSBDevice = null;
-            break;
-        }
-    }
-}
-*/
 
 
   @RequiresApi(api = Build.VERSION_CODES.N)
