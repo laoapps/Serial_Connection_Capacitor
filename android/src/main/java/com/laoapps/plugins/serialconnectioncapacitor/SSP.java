@@ -24,6 +24,7 @@ import org.json.JSONObject;
 import com.fazecast.jSerialComm.SerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialPort;
 
+
 public class SSP {
 
 
@@ -520,6 +521,7 @@ public class SSP {
       return result;
     });
   }
+
 
   /**
    * Initializes the SSP connection sequence.
