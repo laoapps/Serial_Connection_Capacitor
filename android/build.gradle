@@ -69,6 +69,7 @@ dependencies {
     implementation 'com.github.mik3y:usb-serial-for-android:3.8.1'
     testImplementation 'org.robolectric:robolectric:4.9'
     testImplementation 'org.mockito:mockito-core:3.11.2'
+    implementation "androidx.annotation:annotation:1.8.0"
     testImplementation "junit:junit:$junitVersion"
     if (System.getenv("CAP_PLUGIN_PUBLISH") == "true") {
         implementation "com.capacitorjs:core:$capacitorVersion"

@@ -1,5 +1,5 @@
 package com.laoapps.plugins.serialconnectioncapacitor;
-
+import androidx.annotation.RequiresApi;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
