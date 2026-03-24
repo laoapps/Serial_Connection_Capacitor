@@ -7,7 +7,7 @@ import  {
 } from './definitions';
 export * from './definitions';
 
-const SerialConnectionCapacitorNative = registerPlugin<SerialPortPlugin>('SerialCapacitor',{
+const SerialConnectionCapacitorNative = registerPlugin<SerialPortPlugin>('SerialConnectionCapacitor',{
   web: () => import('./web').then(m => new m.SerialConnectionCapacitorWeb()),
 });
 

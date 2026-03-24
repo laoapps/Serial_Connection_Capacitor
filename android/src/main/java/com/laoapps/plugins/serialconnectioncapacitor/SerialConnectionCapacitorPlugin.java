@@ -48,9 +48,8 @@ import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-@CapacitorPlugin(name = "SerialCapacitor")
-public class
-SerialConnectionCapacitorPlugin extends Plugin {
+@CapacitorPlugin(name = "SerialConnectionCapacitor")
+public class SerialConnectionCapacitorPlugin extends Plugin {
   private static final String TAG = "SerialConnCap";
 
 
