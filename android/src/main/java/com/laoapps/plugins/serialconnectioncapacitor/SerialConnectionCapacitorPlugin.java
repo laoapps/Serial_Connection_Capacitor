@@ -730,10 +730,12 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
   @Override
   protected void handleOnDestroy() {
-    Log.d(TAG, "Plugin being destroyed, cleaning up...");
 
 //    stopPolling();
-    sspDevice.stopPoll();
+    Log.d(TAG, "Plugin being destroyed - cleaning up");
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+      close(null);
+    }
 
     if (usbPermissionReceiver != null) {
       try {
@@ -1996,52 +1998,54 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
   @RequiresApi(api = Build.VERSION_CODES.N)
   @PluginMethod
   public void close(PluginCall call) {
-//    stopPolling();
-    sspDevice.stopPoll();
+    Log.d(TAG, "close() called");
 
     synchronized (this) {
+      // Safely stop SSP polling if it exists
+      if (sspDevice != null) {
+        try {
+          sspDevice.stopPoll();
+          Log.d(TAG, "SSP polling stopped");
+        } catch (Exception e) {
+          Log.e(TAG, "Error stopping SSP poll: " + e.getMessage());
+        }
+        sspDevice = null;   // Clear reference
+      }
+
+      // Close native serial port
       if (serialPort != null) {
         try {
           serialPort.close();
-          serialPort = null;
-          Log.d(TAG, "Serial port closed");
-          if (call != null) {
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("message", "Serial connection closed");
-            notifyListeners("serialClosed", ret);
-            call.resolve(ret);
-          }
+          Log.d(TAG, "Native serial port closed");
         } catch (Exception e) {
-          if (call != null) {
-            call.reject("Failed to close serial: " + e.getMessage());
-          }
+          Log.e(TAG, "Error closing native serial: " + e.getMessage());
         }
-      } else if (usbSerialPort != null) {
+        serialPort = null;
+      }
+
+      // Close USB serial port
+      if (usbSerialPort != null) {
         try {
           usbSerialPort.close();
-          usbSerialPort = null;
           Log.d(TAG, "USB serial port closed");
-          if (call != null) {
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("message", "USB serial connection closed");
-            notifyListeners("usbSerialClosed", ret);
-            call.resolve(ret);
-          }
         } catch (Exception e) {
-          if (call != null) {
-            call.reject("Failed to close USB serial: " + e.getMessage());
-          }
+          Log.e(TAG, "Error closing USB serial: " + e.getMessage());
         }
-      } else {
-        if (call != null) {
-          JSObject ret = new JSObject();
-          ret.put("success", true);
-          ret.put("message", "No connection was open");
-          call.resolve(ret);
-        }
+        usbSerialPort = null;
       }
+
+      // Clear other references
+      pendingPermissionCall = null;
+      pendingUSBDevice = null;
+
+      Log.d(TAG, "All connections closed successfully");
+    }
+
+    if (call != null) {
+      JSObject ret = new JSObject();
+      ret.put("success", true);
+      ret.put("message", "All serial connections closed");
+      call.resolve(ret);
     }
   }
   // Helper methods

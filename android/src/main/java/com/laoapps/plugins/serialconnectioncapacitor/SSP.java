@@ -760,7 +760,12 @@ public class SSP {
   public void stopPoll() {
     polling = false;
     if (pollThread != null) {
-      pollThread.interrupt();
+      try {
+        pollThread.interrupt();
+        pollThread = null;
+      } catch (Exception e) {
+        Log.e(TAG, "Error interrupting poll thread: " + e.getMessage());
+      }
     }
   }
   @RequiresApi(api = Build.VERSION_CODES.N)
