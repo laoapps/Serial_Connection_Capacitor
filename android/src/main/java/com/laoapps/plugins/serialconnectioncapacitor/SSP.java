@@ -165,16 +165,46 @@ public class SSP {
    *
    * @throws Exception If closing fails
    */
+  /**
+   * Closes the serial port - supports both native and USB
+   */
   @RequiresApi(api = Build.VERSION_CODES.N)
   public void close() throws Exception {
-    stopPoll();
-    if (port != null) {
-      port.closePort();
-      port = null;
-      emitEvent("CLOSE", new JSONObject());
-    }
-  }
+    Log.d(TAG, "SSP.close() called - cleaning up");
 
+    stopPoll();
+
+    // Close USB port
+    if (usbSerialPort != null) {
+      try {
+        usbSerialPort.close();
+        Log.d(TAG, "USB serial port closed");
+      } catch (Exception e) {
+        Log.w(TAG, "Failed to close USB port: " + e.getMessage());
+      }
+      usbSerialPort = null;
+      usingUsbPort = false;
+    }
+
+    // Close native port
+    if (port != null) {
+      try {
+        port.closePort();
+        Log.d(TAG, "Native serial port closed");
+      } catch (Exception e) {
+        Log.w(TAG, "Failed to close native port: " + e.getMessage());
+      }
+      port = null;
+    }
+
+    enabled = false;
+    encryptKey = null;
+    eCount = 0;
+    sequence = (byte) 0x80;
+
+    emitEvent("CLOSE", new JSONObject());
+    Log.d(TAG, "SSP closed successfully");
+  }
   /**
    * Registers an event listener.
    *

@@ -918,25 +918,10 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
     } catch (Exception e) {
       Log.e(TAG, "Failed to open USB: " + e.getMessage());
-      safeCloseUSB();
       return false;
     }
   }
 
-  private void safeCloseUSB() {
-    try {
-      if (sspDevice != null) {
-        sspDevice.stopPoll();
-        sspDevice = null;
-      }
-      if (usbSerialPort != null) {
-        usbSerialPort.close();
-        usbSerialPort = null;
-      }
-    } catch (Exception e) {
-      Log.e(TAG, "Error closing USB: " + e.getMessage());
-    }
-  }
 
 
 
@@ -1464,9 +1449,13 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
           try {
             Log.d(TAG, "Closing USB connection...");
             if (sspDevice != null) {
-              sspDevice.stopPoll();
+              try {
+                sspDevice.close();
+              } catch (Exception e) {
+                Log.e(TAG, "Error closing SSP during reinit: " + e.getMessage());
+              }
+              sspDevice = null;
             }
-            usbSerialPort.close();
           } catch (Exception e) {
             Log.e(TAG, "Error closing USB: " + e.getMessage());
           } finally {
@@ -2001,40 +1990,35 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     Log.d(TAG, "close() called");
 
     synchronized (this) {
-      // Safely stop SSP polling if it exists
+      // Let SSP handle all its internal cleanup (USB + native + polling)
       if (sspDevice != null) {
         try {
-          sspDevice.stopPoll();
-          Log.d(TAG, "SSP polling stopped");
+          sspDevice.close();           // ← This should do most of the work
         } catch (Exception e) {
-          Log.e(TAG, "Error stopping SSP poll: " + e.getMessage());
+          Log.e(TAG, "Error in sspDevice.close(): " + e.getMessage());
         }
-        sspDevice = null;   // Clear reference
+        sspDevice = null;
       }
 
-      // Close native serial port
+      // Extra safety: close ports directly in case SSP missed something
       if (serialPort != null) {
         try {
           serialPort.close();
-          Log.d(TAG, "Native serial port closed");
         } catch (Exception e) {
-          Log.e(TAG, "Error closing native serial: " + e.getMessage());
+          Log.w(TAG, "Error closing native serialPort");
         }
         serialPort = null;
       }
 
-      // Close USB serial port
       if (usbSerialPort != null) {
         try {
           usbSerialPort.close();
-          Log.d(TAG, "USB serial port closed");
         } catch (Exception e) {
-          Log.e(TAG, "Error closing USB serial: " + e.getMessage());
+          Log.w(TAG, "Error closing usbSerialPort");
         }
         usbSerialPort = null;
       }
 
-      // Clear other references
       pendingPermissionCall = null;
       pendingUSBDevice = null;
 
@@ -2048,7 +2032,6 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
       call.resolve(ret);
     }
   }
-  // Helper methods
 
 
 
