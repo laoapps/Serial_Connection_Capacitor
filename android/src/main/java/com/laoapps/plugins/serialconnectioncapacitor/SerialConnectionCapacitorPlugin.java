@@ -890,9 +890,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @RequiresApi(api = Build.VERSION_CODES.N)
     private boolean attemptUSBOpen(UsbSerialDriver driver, UsbDevice device) {
         try {
-            Log.d(TAG, "Opening USB device for NV9: " + device.getDeviceName());
+            Log.d(TAG, "=== attemptUSBOpen started for NV9: " + device.getDeviceName());
 
-            // 1. Open the USB port only
+            // 1. Open USB port (this part can fail)
             usbSerialPort = driver.getPorts().get(0);
             usbSerialPort.open(usbManager.openDevice(device));
             usbSerialPort.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
@@ -901,28 +901,31 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
 
             Log.d(TAG, "✅ USB port opened successfully for NV9");
 
-            // 2. ALWAYS create SSP here (independent of previous code)
+            // 2. GUARANTEED SSP creation — completely independent of RS232 controller
             if (sspDevice == null) {
                 sspDevice = new SSP();
-                Log.d(TAG, "✅ New SSP instance created for NV9");
+                Log.d(TAG, "✅ New SSP instance created in attemptUSBOpen");
+            } else {
+                Log.d(TAG, "SSP instance already existed — reusing it");
             }
 
             // 3. Attach USB port to SSP
             sspDevice.setUsbSerialPort(usbSerialPort);
 
-            // 4. Initialize SSP in background (non-blocking)
+            // 4. Start SSP initialization (non-blocking)
             initializeSSPAsync();
 
             JSObject ret = new JSObject();
             ret.put("success", true);
-            ret.put("message", "NV9 USB connection opened");
+            ret.put("message", "NV9 USB connection opened successfully");
             notifyListeners("usbSerialOpened", ret);
 
             return true;
 
         } catch (Exception e) {
             Log.e(TAG, "❌ attemptUSBOpen failed: " + e.getMessage(), e);
-            usbSerialPort = null;   // clean up partial state
+            usbSerialPort = null;   // clean up only USB part
+            // IMPORTANT: Do NOT set sspDevice = null here
             return false;
         }
     }
@@ -1381,7 +1384,8 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
         Log.d(TAG, "sendNV9Command: " + command);
         // === CRITICAL SAFETY CHECK ===
         if (sspDevice == null) {
-            call.reject("NV9 (SSP) not initialized. Call openUSB() or autoDetectAndOpenNV9() first.");
+            call.reject("NV9 SSP device not initialized yet. "
+                    + "Please call autoDetectAndOpenNV9() or openUSB() first.");
             return;
         }
 
