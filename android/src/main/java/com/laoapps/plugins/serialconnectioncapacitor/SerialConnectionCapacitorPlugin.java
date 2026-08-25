@@ -78,7 +78,7 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
-
+        cleanupLockedSerialPortsOnStartup();
         // Initialize SSP
         // Always create SSP instance at startup (NV9 support)
         if (sspDevice == null) {
@@ -3071,4 +3071,128 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     }
 
     // M102
+
+
+
+    ///  CLEAN UP
+
+    private static final String[] NATIVE_TTY_PORTS = {
+            "/dev/ttyS1",
+            "/dev/ttyS2",
+            "/dev/ttyS3"
+    };
+
+    /** Call once from load(), before USB scan / open. */
+    private void cleanupLockedSerialPortsOnStartup() {
+        new Thread(() -> {
+            try {
+                int myPid = android.os.Process.myPid();
+                Log.d(TAG, "Startup serial cleanup. myPid=" + myPid);
+
+                for (String port : NATIVE_TTY_PORTS) {
+                    ensureTtyWritable(port);
+                    List<Integer> pids = listPidsHoldingPort(port);
+                    if (pids.isEmpty()) {
+                        Log.d(TAG, port + " is free");
+                        continue;
+                    }
+
+                    Log.w(TAG, port + " held by PIDs: " + pids);
+                    for (int pid : pids) {
+                        if (pid == myPid || pid <= 1) {
+                            continue;
+                        }
+                        if (isProtectedPid(pid)) {
+                            Log.w(TAG, "Skip protected pid " + pid + " on " + port);
+                            continue;
+                        }
+                        Log.w(TAG, "Killing pid " + pid + " holding " + port);
+                        su("kill -9 " + pid);
+                    }
+
+                    // Last resort for that port only (still skips nothing extra if already dead)
+                    Thread.sleep(200);
+                    if (!listPidsHoldingPort(port).isEmpty()) {
+                        Log.w(TAG, "fuser -k " + port);
+                        su("fuser -k " + port);
+                    }
+                }
+
+                Log.d(TAG, "Startup serial cleanup done");
+            } catch (Exception e) {
+                Log.e(TAG, "Startup serial cleanup failed: " + e.getMessage());
+            }
+        }, "tty-cleanup").start();
+    }
+
+    private void ensureTtyWritable(String port) {
+        File f = new File(port);
+        if (!f.exists()) {
+            return;
+        }
+        if (f.canRead() && f.canWrite()) {
+            return;
+        }
+        su("chmod 666 " + port);
+    }
+
+    private List<Integer> listPidsHoldingPort(String port) {
+        List<Integer> pids = new ArrayList<>();
+        // fuser prints: /dev/ttyS1:  1234  5678
+        String out = su("fuser " + port + " 2>/dev/null");
+        if (out == null || out.trim().isEmpty()) {
+            // fallback if busybox fuser missing
+            out = su("sh -c 'for p in /proc/[0-9]*; do "
+                    + "ls -l $p/fd 2>/dev/null | grep -q \"" + port + "\" && echo ${p#/proc/}; "
+                    + "done'");
+        }
+        if (out == null) {
+            return pids;
+        }
+        for (String token : out.replace(":", " ").split("\\s+")) {
+            try {
+                if (!token.isEmpty()) {
+                    pids.add(Integer.parseInt(token));
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return pids;
+    }
+
+    private boolean isProtectedPid(int pid) {
+        String comm = su("cat /proc/" + pid + "/comm 2>/dev/null");
+        if (comm == null) {
+            return false;
+        }
+        comm = comm.trim();
+        return comm.equals("init")
+                || comm.equals("system_server")
+                || comm.equals("zygote")
+                || comm.equals("zygote64")
+                || comm.contains("surfaceflinger");
+    }
+
+    private String su(String command) {
+        Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] tmp = new byte[512];
+            int n;
+            java.io.InputStream in = process.getInputStream();
+            while ((n = in.read(tmp)) > 0) {
+                buf.write(tmp, 0, n);
+            }
+            process.waitFor();
+            return buf.toString("UTF-8");
+        } catch (Exception e) {
+            Log.e(TAG, "su failed [" + command + "]: " + e.getMessage());
+            return "";
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
 }
