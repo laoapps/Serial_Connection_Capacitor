@@ -63,6 +63,9 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
     private PluginCall pendingPermissionCall;
     private final Queue<byte[]> commandQueue = new LinkedList<>();
     private byte packNoCounter = 0;
+    private byte[] vmcPending = null;
+    private int vmcPendingRetries = 0;
+    private static final int VMC_MAX_RETRIES = 5;
     private SSP sspDevice;
     private Thread pollThread;
     private boolean isNV9AutoDetectEnabled = false;
@@ -1764,6 +1767,55 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 byte value4 = (byte) Integer.parseInt(params.getString("value", "ffff"), 16);
                 text = new byte[]{packNo, (byte) mode4, value4};
                 break;
+            case "80": // Gravity cabinet door status
+                cmdByte = (byte) 0x80;
+                text = new byte[]{packNo, (byte) clampToByte(params.getInteger("cabinet", 0))};
+                break;
+            case "82": // Gravity cabinet weight snapshot
+                cmdByte = (byte) 0x82;
+                text = new byte[]{packNo,
+                    (byte) clampToByte(params.getInteger("cabinet", 0)),
+                    (byte) clampToByte(params.getInteger("door", 0))};
+                break;
+            case "84": // Unlock door, auto-relock seconds 5-250
+                cmdByte = (byte) 0x84;
+                int openSec = clampToByte(params.getInteger("seconds", 20));
+                if (openSec < 5) openSec = 5;
+                text = new byte[]{packNo,
+                    (byte) clampToByte(params.getInteger("cabinet", 0)),
+                    (byte) clampToByte(params.getInteger("door", 0)),
+                    (byte) openSec};
+                break;
+            case "86": // Scale module info
+                cmdByte = (byte) 0x86;
+                int fromLane = params.getInteger("fromLane", 1);
+                int toLane = params.getInteger("toLane", 1);
+                text = new byte[]{packNo,
+                    (byte) clampToByte(params.getInteger("cabinet", 0)),
+                    (byte) (fromLane & 0xFF), (byte) ((fromLane >> 8) & 0xFF),
+                    (byte) (toLane & 0xFF), (byte) ((toLane >> 8) & 0xFF)};
+                break;
+            case "708A": // Zero scale. cabinet 99 = all, lane 0 = all
+                cmdByte = (byte) 0x70;
+                text = new byte[]{packNo, (byte) 0x8A, 0x01,
+                    (byte) clampToByte(params.getInteger("cabinet", 0)),
+                    (byte) clampToByte(params.getInteger("lane", 0))};
+                break;
+            case "708B": // Calibrate scale, weight in grams
+                cmdByte = (byte) 0x70;
+                int grams = params.getInteger("grams", 500);
+                text = new byte[]{packNo, (byte) 0x8B, 0x01,
+                    (byte) clampToByte(params.getInteger("cabinet", 0)),
+                    (byte) clampToByte(params.getInteger("lane", 1)),
+                    (byte) (grams & 0xFF), (byte) ((grams >> 8) & 0xFF)};
+                break;
+            case "7057": // Actuator test
+                cmdByte = (byte) 0x70;
+                text = new byte[]{packNo, 0x57, 0x01,
+                    (byte) clampToByte(params.getInteger("device", 1)),
+                    (byte) clampToByte(params.getInteger("action", 1)),
+                    (byte) clampToByte(params.getInteger("cabinet", 0))};
+                break;
             default:
                 text = new byte[0];
                 Log.w(TAG, "Unsupported command: " + command + ", params: " + params.toString());
@@ -1847,65 +1899,18 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                                         }
 
                                         if (packetHex.equals("fafb410040")) { // POLL
-                                            synchronized (commandQueue) {
-                                                if (!commandQueue.isEmpty()) {
-                                                    byte[] response = commandQueue.peek(); // peek first to check
-
-                                                    long now = System.currentTimeMillis();
-                                                    if (now - lastVmcCommandEnqueueTime > VMC_STUCK_TIMEOUT_MS) {
-                                                        Log.w(TAG, "VMC command stuck >10s → dropping it (safety timeout). "
-                                                                + "Command: " + bytesToHex(response, response.length)
-                                                                + ", Queue size was: " + commandQueue.size());
-                                                        commandQueue.poll();
-                                                        lastVmcCommandEnqueueTime = 0;
-                                                    } else {
-                                                        // Normal send
-                                                        byte[] toSend = commandQueue.poll(); // now remove it
-                                                        assert toSend != null;
-                                                        Log.d(TAG, "POLL received, sending command: " + bytesToHex(toSend, toSend.length));
-
-                                                        try {
-                                                            serialPort.getOutputStream().write(toSend);
-                                                            serialPort.getOutputStream().flush();
-                                                            notifyListeners("serialWriteSuccess", new JSObject().put("data", bytesToHex(toSend, toSend.length)));
-                                                            // Success → reset stuck timer
-                                                            lastVmcCommandEnqueueTime = 0;
-                                                            Log.d(TAG, "Command sent successfully → timeout timer reset");
-                                                        } catch (Exception e) {
-                                                            Log.e(TAG, "Failed to send VMC command: " + e.getMessage());
-                                                            // If send fails → you can decide to re-queue or drop
-                                                            // For safety: drop it after failure (prevents re-try loop)
-                                                            // commandQueue.addFirst(toSend); // ← uncomment if you want retry
-                                                        }
-                                                    }
-                                                } else {
-                                                    byte[] ack = hexStringToByteArray("fafb420043");
-                                                    Log.d(TAG, "POLL received, sending ACK: fafb420043");
-                                                    serialPort.getOutputStream().write(ack);
-                                                    serialPort.getOutputStream().flush();
-                                                    notifyListeners("serialWriteSuccess", new JSObject().put("data", "fafb420043"));
-                                                }
-                                            }
-                                        } else if (packetHex.equals("fafb420043") || packetHex.equals("fafb420143")) { // ACK
-                                            synchronized (commandQueue) {
-                                                if (!commandQueue.isEmpty()) {
-                                                    byte[] ack = hexStringToByteArray("fafb420043");
-                                                    Log.d(TAG, "ACK received, dequeued command: " + bytesToHex(ack, ack.length));
-                                                    JSObject ackEvent = new JSObject();
-                                                    ackEvent.put("data", bytesToHex(ack, ack.length));
-                                                    notifyListeners("commandAcknowledged", ackEvent);
-                                                }
-                                            }
-                                        } else { // Responses all data with ack
+                                            handleVmcPoll();
+                                        } else if (packetHex.equals("fafb420043")) { // ACK, length 0
+                                            onVmcAck();
+                                        } else { // VMC data: ACK first, echo sync if needed
                                             Log.d(TAG, "Response received: " + packetHex);
                                             JSObject dataEvent = new JSObject();
                                             dataEvent.put("data", packetHex);
                                             notifyListeners("dataReceived", dataEvent);
-
-                                            byte[] ack = hexStringToByteArray("fafb420043");
-                                            Log.d(TAG, "Sending ACK: fafb420043");
-                                            serialPort.getOutputStream().write(ack);
-                                            serialPort.getOutputStream().flush();
+                                            writeVmcFrame(hexStringToByteArray("fafb420043"));
+                                            if ((packet[2] & 0xFF) == 0x31) {
+                                                queueSyncEcho();
+                                            }
                                         }
 
                                         start += packetLength;
@@ -1934,6 +1939,65 @@ public class SerialConnectionCapacitorPlugin extends Plugin {
                 }
             }
         }).start();
+    }
+
+
+    private void handleVmcPoll() throws java.io.IOException {
+        byte[] toSend;
+        synchronized (commandQueue) {
+            if (vmcPending != null && vmcPendingRetries >= VMC_MAX_RETRIES) {
+                Log.w(TAG, "VMC no ACK after 5 sends, drop " + bytesToHex(vmcPending));
+                JSObject fail = new JSObject();
+                fail.put("data", bytesToHex(vmcPending));
+                fail.put("reason", "no_ack");
+                notifyListeners("commandFailed", fail);
+                vmcPending = null;
+                vmcPendingRetries = 0;
+            }
+            if (vmcPending != null) {
+                toSend = vmcPending;
+                vmcPendingRetries++;
+                Log.d(TAG, "POLL resend #" + vmcPendingRetries + " " + bytesToHex(toSend));
+            } else if (!commandQueue.isEmpty()) {
+                vmcPending = commandQueue.poll();
+                vmcPendingRetries = 1;
+                toSend = vmcPending;
+                Log.d(TAG, "POLL send " + bytesToHex(toSend));
+            } else {
+                toSend = hexStringToByteArray("fafb420043");
+            }
+        }
+        writeVmcFrame(toSend);
+    }
+
+    private void onVmcAck() {
+        synchronized (commandQueue) {
+            if (vmcPending == null) {
+                return;
+            }
+            Log.d(TAG, "ACK committed " + bytesToHex(vmcPending));
+            JSObject ackEvent = new JSObject();
+            ackEvent.put("data", bytesToHex(vmcPending));
+            notifyListeners("commandAcknowledged", ackEvent);
+            vmcPending = null;
+            vmcPendingRetries = 0;
+        }
+    }
+
+    private void writeVmcFrame(byte[] frame) throws java.io.IOException {
+        serialPort.getOutputStream().write(frame);
+        serialPort.getOutputStream().flush();
+        notifyListeners("serialWriteSuccess", new JSObject().put("data", bytesToHex(frame)));
+    }
+
+    private void queueSyncEcho() {
+        byte packNo = getNextPackNo();
+        byte[] frame = new byte[]{(byte) 0xFA, (byte) 0xFB, 0x31, 0x01, packNo, 0};
+        frame[5] = calculateXOR(frame, 5);
+        synchronized (commandQueue) {
+            commandQueue.add(frame);
+        }
+        Log.d(TAG, "Queued 0x31 echo " + bytesToHex(frame));
     }
 
     @PluginMethod
