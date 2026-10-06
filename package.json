@@ -1,6 +1,6 @@
 {
   "name": "serialconnectioncapacitor",
-  "version": "7.7.35",
+  "version": "7.7.36",
   "description": "for serial connection",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
